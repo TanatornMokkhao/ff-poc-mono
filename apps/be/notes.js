@@ -36,3 +36,7 @@ export async function notes(req, send) {
     return send(err.message === 'body is not JSON' ? 400 : 500, { error: err.message });
   }
 }
+
+export function isLong(text) {
+  return text.length > 10;
+}
