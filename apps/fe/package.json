@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.5.3",
+    "@stryker-mutator/core": "8.7.1",
     "@vitejs/plugin-legacy": "^8.0.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "@vitest/coverage-v8": "4.0.18",

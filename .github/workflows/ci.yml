@@ -82,6 +82,8 @@ jobs:
       - name: Repo tooling (Nx, for test selection)
         working-directory: .
         run: npm ci
+      - name: Known vulnerabilities in shipped packages
+        run: bash ../../scripts/checks/audit.sh be
       - name: eslint on changed files
         run: bash ../../scripts/checks/lint-app.sh be
       - name: Type check (missed await, wrong field, possible null)
@@ -98,7 +100,7 @@ jobs:
       - name: New-code coverage
         run: node ../../scripts/checks/new-code-coverage.mjs be lcov.info
       - name: Mutation testing on changed files (do the tests notice a change?)
-        run: bash ../../scripts/checks/mutation.sh
+        run: bash ../../scripts/checks/mutation.sh be
       - run: docker build -t be-check .
       - name: The image starts
         run: |
@@ -226,6 +228,8 @@ jobs:
       - name: Repo tooling (Nx, for test selection)
         working-directory: .
         run: npm ci
+      - name: Known vulnerabilities in shipped packages
+        run: bash ../../scripts/checks/audit.sh fe
       - name: eslint on changed files
         run: bash ../../scripts/checks/lint-app.sh fe
       # Only the tests of the fe projects this change affects (scripts/checks/app-tests.sh).
@@ -237,6 +241,8 @@ jobs:
           npx vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage "${files[@]}"
       - name: New-code coverage
         run: node ../../scripts/checks/new-code-coverage.mjs fe coverage/lcov.info
+      - name: Mutation testing on changed files (do the tests notice a change?)
+        run: bash ../../scripts/checks/mutation.sh fe
       - run: npm run build
 
   # Terraform format and validity on every change to infra/, so a broken file never reaches the

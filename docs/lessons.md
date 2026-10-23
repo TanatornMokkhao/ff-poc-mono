@@ -34,6 +34,12 @@ can be switched on without fixing the whole repo first.
 | 2026-10-24 | Found by that mutation run: the NOT NULL rule refused `ADD COLUMN c INT DEFAULT 0 NOT NULL` (safe) and let `ADD COLUMN c INT NOT NULL` through when the file had no closing semicolon | The rule looks for DEFAULT anywhere in the statement and needs no semicolon | Tested logic | `apps/be/scripts/check-migrations.mjs` | `check-migrations.test.js` "a DEFAULT before NOT NULL is fine..." |
 | 2026-10-24 | With `noImplicitAny` off, an untyped variable or parameter was `any` and the type check skipped everything that flowed through it (the first must-fail run passed a missed await this way) | be type check is fully strict: every parameter has a type, a caught value is `unknown` until checked | Tool on all of be | `apps/be/jsconfig.json`, `apps/be/types.d.ts`, `apps/be/errors.js` | An untyped parameter fails with TS7006; a missed await on a typed pool fails with TS2339. Turning it on also found that an SSM parameter's `Name` may be undefined, now skipped |
 
+| 2026-10-24 | fe tests were held to coverage only, so an fe test that checked nothing still passed | Mutation score of the fe lines a change adds (`src/**/*.ts`, `.vue`) must be at least 70%, the same gate as be | Tool on new code | `scripts/checks/mutation.sh fe`, `apps/fe/stryker.config.json` | An untested `isProd` added to `config.ts`: 0.00, fails; with its test: 100.00, passes |
+| 2026-10-24 | Nothing checked the packages an app ships against known advisories | `npm audit` on each app's dependencies (devDependencies left out) fails on high or critical | Tool on all of the app | `scripts/checks/audit.sh`, `be` and `fe` jobs | lodash 4.17.20 as a dependency: 1 high, fails; a critical minimist only in devDependencies: passes |
+
 ## Known weak spots (found by the gates, not fixed yet)
 
-None open on 2026-10-24. Add one here when a gate finds a weak spot that is not fixed in the same change.
+| Found | Where | What | Why not fixed |
+| --- | --- | --- | --- |
+| 2026-10-24 | `apps/fe/src/features/config/config.ts` | Mutation score 66.67% (12 killed, 6 survived): the `VITE_API_ENV` fallback, the `res.ok` check and the `load` call are not checked by `config.spec.ts`. All fe feature code: 85.19% | Old code; the gate checks only the lines a change adds |
+| 2026-10-24 | devDependencies and the root tooling | `npm audit` without `--omit=dev`: be 1 high, root (Nx) 2 high. They do not ship, so the gate leaves them out | Build tools only; no gate reads them
