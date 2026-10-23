@@ -3,7 +3,7 @@
 # creating a ref on a commit that holds workflow files, and its pushes start no workflow.
 # Checks the lines this change adds to .github/workflows/:
 #   - "gh release create" with --target (the API creates the tag with GITHUB_TOKEN)
-#   - "gh api .../git/refs" (creates a ref with GITHUB_TOKEN)
+#   - "gh api .../git/refs" that is not a DELETE (creates a ref with GITHUB_TOKEN)
 #   - "git push" in a workflow whose checkout has no ssh-key
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -19,7 +19,8 @@ while IFS= read -r f; do
     echo "::error file=$f::gh release create --target makes the tag with GITHUB_TOKEN (403). Push the tag with the deploy key, then gh release create --verify-tag."
     bad=1
   fi
-  if grep -qE 'gh api[^#]*git/refs' <<<"$added"; then
+  # Deleting a ref with GITHUB_TOKEN works; creating one is what fails.
+  if grep -E 'gh api[^#]*git/refs' <<<"$added" | grep -qvE '(-X|--method)[[:space:]]+DELETE'; then
     echo "::error file=$f::gh api .../git/refs creates a ref with GITHUB_TOKEN. Push it with the deploy key instead."
     bad=1
   fi
