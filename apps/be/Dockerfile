@@ -2,7 +2,7 @@ FROM node:22-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY server.js index.js migrate.js .env.example ./
+COPY server.js index.js migrate.js errors.js .env.example ./
 COPY features ./features
 # Migrations ship in the image, so the deploy can run `node migrate.js` from the image it deploys.
 COPY migrations ./migrations

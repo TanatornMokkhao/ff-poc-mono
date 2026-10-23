@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { checkAll, checkFile } from './scripts/check-migrations.mjs';
 
-const expand = (sql) => checkFile('0003_x.sql', `-- kind: expand\n${sql}`);
+const expand = (/** @type {string} */ sql) => checkFile('0003_x.sql', `-- kind: expand\n${sql}`);
 
 test('each breaking statement in an expand migration is reported with what it does', () => {
   const cases = [
@@ -69,7 +69,7 @@ test('a DEFAULT before NOT NULL is fine; a last statement without a semicolon st
 });
 
 test('removes-use-from takes any X.Y.Z on its own line, with any spacing', () => {
-  const ok = (line) => checkFile('0004_x.sql', `-- kind: contract\n${line}\nDROP TABLE t;`);
+  const ok = (/** @type {string} */ line) => checkFile('0004_x.sql', `-- kind: contract\n${line}\nDROP TABLE t;`);
   assert.deepEqual(ok('-- removes-use-from: 10.20.30'), []);
   assert.deepEqual(ok('--   removes-use-from:   1.2.0   '), []);
   assert.deepEqual(ok('--removes-use-from:1.2.0'), []);
@@ -101,7 +101,7 @@ test('a contract needs removes-use-from with a full version, and may break', () 
 });
 
 test('file names are NNNN_lower_snake.sql, and a bad name is reported with the other problems', () => {
-  const bad = (n) => `${n}: name must be NNNN_lower_snake.sql`;
+  const bad = (/** @type {string} */ n) => `${n}: name must be NNNN_lower_snake.sql`;
   assert.deepEqual(checkFile('5_x.sql', '-- kind: expand\nSELECT 1;'), [bad('5_x.sql')]);
   assert.deepEqual(checkFile('0005_Upper.sql', '-- kind: expand\nSELECT 1;'), [bad('0005_Upper.sql')]);
   assert.deepEqual(checkFile('0005_x.SQL', '-- kind: expand\nSELECT 1;'), [bad('0005_x.SQL')]);
@@ -114,19 +114,19 @@ test('file names are NNNN_lower_snake.sql, and a bad name is reported with the o
 // A repo with migrations/0001 and 0002 released as tag v1, then the working tree for the case.
 function repo() {
   const root = mkdtempSync(join(tmpdir(), 'mig-'));
-  const git = (...a) => execFileSync('git', a, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
+  const git = (/** @type {string[]} */ ...a) => execFileSync('git', a, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] });
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 't@t');
   git('config', 'user.name', 't');
   mkdirSync(join(root, 'migrations'));
-  const put = (f, sql) => writeFileSync(join(root, 'migrations', f), sql);
+  const put = (/** @type {string} */ f, /** @type {string} */ sql) => writeFileSync(join(root, 'migrations', f), sql);
   put('0001_a.sql', '-- kind: expand\nCREATE TABLE a (id INT);\n');
   put('0002_b.sql', '-- kind: expand\nCREATE TABLE b (id INT);\n');
   git('add', '-A');
   git('commit', '-qm', 'v1');
   git('tag', 'v1');
   const dir = pathToFileURL(join(root, 'migrations') + '/');
-  return { root, dir, put, drop: (f) => unlinkSync(join(root, 'migrations', f)), done: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, dir, put, drop: (/** @type {string} */ f) => unlinkSync(join(root, 'migrations', f)), done: () => rmSync(root, { recursive: true, force: true }) };
 }
 
 test('checkAll: released files unchanged and a new file after them pass', () => {

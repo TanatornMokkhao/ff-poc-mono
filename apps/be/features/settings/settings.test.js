@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSettings, missingKeys, requiredKeys } from './settings.js';
 
-const fakeClient = (pages) => ({ send: async () => pages.shift() });
+const fakeClient = (/** @type {object[]} */ pages) => ({ send: async () => pages.shift() });
 
 test('requiredKeys reads key names and skips comments', () => {
   assert.deepEqual(requiredKeys('# c\nA=1\n\nB= # secret\nC= # secret optional\n'), ['A', 'B']);
@@ -22,7 +22,8 @@ test('loads every page under the path into env', async () => {
   const params = names.map((n) => ({ Name: `/x/staging/be/${n}`, Value: `v-${n}` }));
   const pages = [{ Parameters: params.slice(0, 4), NextToken: 't' }, { Parameters: params.slice(4) }];
   assert.deepEqual(await loadSettings({ env, client: fakeClient(pages) }), { loaded: names.length });
-  assert.equal(env[names.at(-1)], `v-${names.at(-1)}`);
+  const last = names[names.length - 1];
+  assert.equal(env[/** @type {keyof typeof env} */ (last)], `v-${last}`);
 });
 
 test('a key missing from the store stops the server', async () => {

@@ -1,14 +1,22 @@
 import pg from 'pg';
+import { messageOf } from '../../errors.js';
+
+/** @typedef {import('../../types.js').Send} Send */
+/** @typedef {import('../../types.js').Request} Request */
 
 /** @type {pg.Pool | undefined} */
 let pool;
 /** @returns {pg.Pool} */
 const db = () => (pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 }));
 
+/**
+ * @param {Request} req
+ * @returns {Promise<{ body?: unknown, author?: unknown }>}
+ */
 const readBody = (req) =>
   new Promise((resolve, reject) => {
     let raw = '';
-    req.on('data', (c) => (raw += c));
+    req.on('data', (/** @type {Buffer} */ c) => (raw += c));
     req.on('end', () => {
       try {
         resolve(raw ? JSON.parse(raw) : {});
@@ -20,6 +28,10 @@ const readBody = (req) =>
   });
 
 // GET lists the 20 newest notes; POST {body, author?} adds one.
+/**
+ * @param {Request} req
+ * @param {Send} send
+ */
 export async function notes(req, send) {
   if (!process.env.DATABASE_URL) return send(503, { error: 'no database configured' });
   try {
@@ -35,6 +47,7 @@ export async function notes(req, send) {
     }
     return send(405, { error: 'GET or POST' });
   } catch (err) {
-    return send(err.message === 'body is not JSON' ? 400 : 500, { error: err.message });
+    const message = messageOf(err);
+    return send(message === 'body is not JSON' ? 400 : 500, { error: message });
   }
 }

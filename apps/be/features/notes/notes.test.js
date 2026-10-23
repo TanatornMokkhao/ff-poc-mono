@@ -7,7 +7,9 @@ test('without DATABASE_URL, /notes answers 503 for any method', async (t) => {
   for (const method of ['GET', 'POST']) {
     let status;
     let body;
-    await notes({ method }, (s, b) => { status = s; body = b; });
+    // Only the method is read before the database check.
+    const req = /** @type {import('../../types.js').Request} */ (/** @type {unknown} */ ({ method }));
+    await notes(req, (s, b) => { status = s; body = b; });
     assert.equal(status, 503, method);
     assert.deepEqual(body, { error: 'no database configured' });
   }

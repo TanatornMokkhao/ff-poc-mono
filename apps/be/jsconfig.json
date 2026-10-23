@@ -2,8 +2,6 @@
   "compilerOptions": {
     "checkJs": true,
     "strict": true,
-    "noImplicitAny": false,
-    "useUnknownInCatchVariables": false,
     "noEmit": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",
@@ -11,6 +9,6 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["*.js", "features/**/*.js", "scripts/**/*.mjs"],
+  "include": ["*.js", "*.d.ts", "features/**/*.js", "scripts/**/*.mjs"],
   "exclude": ["node_modules", "eslint.config.js"]
 }

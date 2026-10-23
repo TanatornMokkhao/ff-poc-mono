@@ -23,8 +23,14 @@ const BREAKING = [
   [/\bDELETE\s+FROM\b/i, 'deletes rows (data changes go in a command, not a migration)'],
 ];
 
+/** @param {string} sql */
 const stripComments = (sql) => sql.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
+/**
+ * @param {string} name
+ * @param {string} sql
+ * @returns {string[]}
+ */
 export function checkFile(name, sql) {
   const problems = [];
   if (!NAME.test(name)) problems.push(`${name}: name must be NNNN_lower_snake.sql`);
@@ -41,12 +47,19 @@ export function checkFile(name, sql) {
 
 // gitDir: the folder whose ./migrations git reads at baseRef (the app folder; tests pass a repo of
 // their own).
+/**
+ * @param {URL} dir
+ * @param {string | undefined} baseRef
+ * @param {string} [gitDir]
+ * @returns {string[]}
+ */
 export function checkAll(dir, baseRef, gitDir = appDir) {
   const names = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
   const problems = names.flatMap((f) => checkFile(f, readFileSync(new URL(f, dir), 'utf8')));
   const numbers = names.map((f) => f.slice(0, 4));
   for (const n of new Set(numbers)) if (numbers.filter((x) => x === n).length > 1) problems.push(`two migrations are numbered ${n}`);
   if (baseRef) {
+    /** @type {string[]} */
     let released = [];
     try {
       released = execFileSync('git', ['ls-tree', '--name-only', `${baseRef}:./migrations`], { cwd: gitDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean);

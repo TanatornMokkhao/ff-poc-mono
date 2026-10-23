@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { handle } from './server.js';
 
+/**
+ * @param {import('node:http').Server} server
+ * @param {string} path
+ * @returns {Promise<{ status: number | undefined, body: any }>}
+ */
 function get(server, path) {
   return new Promise((resolve, reject) => {
-    const { port } = server.address();
+    // Listening on a TCP port, so address() is an AddressInfo.
+    const { port } = /** @type {import('node:net').AddressInfo} */ (server.address());
     http.get({ port, path }, (res) => {
       let body = '';
       res.on('data', (c) => (body += c));
