@@ -11,6 +11,7 @@ const NAME = /^\d{4}_[a-z0-9_]+\.sql$/;
 
 // Statements an older release cannot live with. Each breaks code that still reads or writes the
 // thing, so it may only appear in a contract migration.
+/** @type {[RegExp, string][]} */
 const BREAKING = [
   [/\bDROP\s+(TABLE|COLUMN|VIEW|SCHEMA|TYPE)\b/i, 'drops something'],
   [/\bRENAME\b/i, 'renames something'],

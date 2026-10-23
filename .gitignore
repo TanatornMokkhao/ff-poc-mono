@@ -3,3 +3,8 @@ node_modules/
 *.tfstate
 *.tfstate.*
 *.tfplan
+lcov.info
+coverage/
+.nx/
+reports/
+.stryker-tmp/

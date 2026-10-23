@@ -1,0 +1,11 @@
+{
+  "name": "ff-poc-mono",
+  "private": true,
+  "description": "Repo tooling only: each app under apps/ keeps its own package.json and lock file.",
+  "scripts": {
+    "affected": "nx show projects --affected"
+  },
+  "devDependencies": {
+    "nx": "20.3.0"
+  }
+}

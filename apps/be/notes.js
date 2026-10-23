@@ -1,6 +1,8 @@
 import pg from 'pg';
 
+/** @type {pg.Pool | undefined} */
 let pool;
+/** @returns {pg.Pool} */
 const db = () => (pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 }));
 
 const readBody = (req) =>

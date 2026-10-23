@@ -38,8 +38,8 @@ jobs:
           if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then CHANGED=$(git diff --name-only "$BEFORE" HEAD)
           else CHANGED=$(git ls-files); fi
           echo "$CHANGED"
-          grep -qE '^(deploy/staging/|scripts/)' <<< "$CHANGED" && echo "staging=true" >> "$GITHUB_OUTPUT" || true
-          grep -qE '^deploy/prod/' <<< "$CHANGED" && echo "prod=true" >> "$GITHUB_OUTPUT" || true
+          if grep -qE '^(deploy/staging/|scripts/)' <<< "$CHANGED"; then echo "staging=true" >> "$GITHUB_OUTPUT"; fi
+          if grep -qE '^deploy/prod/' <<< "$CHANGED"; then echo "prod=true" >> "$GITHUB_OUTPUT"; fi
 
   staging:
     needs: changes

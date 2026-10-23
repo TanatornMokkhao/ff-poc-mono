@@ -1,13 +1,23 @@
 name: CI
 
-# One workflow for the whole repo. Each app's jobs run only when the change touches that app (or
-# this file); the "ci" job always runs and is the one required check on main, so a pull request
-# that skips an app is not left waiting for a check that never starts.
+# One workflow for the whole repo. Each app's jobs run only when Nx says the change affects that
+# app (or when this file changes); the "ci" job always runs and is the one required check on main,
+# so a pull request that skips an app is not left waiting for a check that never starts.
+# Nightly (and by hand) it runs everything on all files, with no base commit: the per-change gates
+# (new-code coverage, mutation, the fix rule) skip themselves, every other check covers the whole
+# repo, and a failure notifies without blocking anyone.
 on:
   pull_request:
   push:
     # release/* holds hotfix cherry-picks, which reach no pull request.
     branches: [main, 'release/**']
+  schedule:
+    - cron: '41 19 * * *'
+  workflow_dispatch:
+
+# Cypress (e2e) never runs in CI; skipping its binary keeps npm ci from failing on its download.
+env:
+  CYPRESS_INSTALL_BINARY: "0"
 
 permissions:
   contents: read
@@ -19,22 +29,34 @@ jobs:
       be: ${{ steps.c.outputs.be }}
       fe: ${{ steps.c.outputs.fe }}
       infra: ${{ steps.c.outputs.infra }}
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      NX_DAEMON: 'false'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - id: c
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then CHANGED=$(git diff --name-only "$BASE" HEAD)
-          else CHANGED=$(git ls-files); fi
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            CHANGED=$(git diff --name-only "$BASE" HEAD)
+            AFFECTED=$(npx nx show projects --affected --base="$BASE" --head=HEAD)
+          else
+            CHANGED=$(git ls-files)
+            AFFECTED=$(npx nx show projects)
+          fi
           all=$(grep -qx '.github/workflows/ci.yml' <<<"$CHANGED" && echo true || echo false)
           for app in be fe; do
-            if [ "$all" = true ] || grep -q "^apps/$app/" <<<"$CHANGED"; then echo "$app=true" >> "$GITHUB_OUTPUT"; fi
+            if [ "$all" = true ] || grep -qx "$app" <<<"$AFFECTED"; then echo "$app=true" >> "$GITHUB_OUTPUT"; fi
           done
           if [ "$all" = true ] || grep -q '^infra/' <<<"$CHANGED"; then echo "infra=true" >> "$GITHUB_OUTPUT"; fi
-          echo "$CHANGED"
+          echo "Affected (Nx): $(paste -sd, <<<"$AFFECTED")"; echo "Changed files:"; echo "$CHANGED"
 
   be:
     needs: changes
@@ -57,7 +79,14 @@ jobs:
       - run: npm ci
       - name: eslint on changed files
         run: bash ../../scripts/checks/lint-app.sh be
-      - run: npm test
+      - name: Type check (missed await, wrong field, possible null)
+        run: npx tsc -p jsconfig.json
+      - name: Tests, with coverage
+        run: node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=lcov.info
+      - name: New-code coverage
+        run: node ../../scripts/checks/new-code-coverage.mjs be lcov.info
+      - name: Mutation testing on changed files (do the tests notice a change?)
+        run: bash ../../scripts/checks/mutation.sh
       - run: docker build -t be-check .
       - name: The image starts
         run: |
@@ -182,7 +211,10 @@ jobs:
       - run: npm ci
       - name: eslint on changed files
         run: bash ../../scripts/checks/lint-app.sh fe
-      - run: npx vitest run
+      - name: Tests, with coverage
+        run: npx vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage
+      - name: New-code coverage
+        run: node ../../scripts/checks/new-code-coverage.mjs fe coverage/lcov.info
       - run: npm run build
 
   # Terraform format and validity on every change to infra/, so a broken file never reaches the
@@ -228,6 +260,11 @@ jobs:
       - name: The checks catch what they exist for
         if: ${{ !cancelled() }}
         run: bash scripts/checks/checks.test.sh
+      - name: A fix comes with a test
+        if: ${{ !cancelled() }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash scripts/checks/fix-has-test.sh
       - name: Release logic decides every known case right
         if: ${{ !cancelled() }}
         run: bash scripts/release-meta.test.sh

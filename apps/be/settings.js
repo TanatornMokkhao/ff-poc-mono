@@ -17,6 +17,7 @@ export function missingKeys(keys, env) {
 // With SSM_PATH set (e.g. /ff-poc/staging/be/), reads every parameter under it into process.env,
 // decrypting secrets, then stops the server if any .env.example key is still missing.
 // Without SSM_PATH (local runs, tests) it leaves process.env as it is and checks nothing.
+/** @param {{ env?: Record<string, string | undefined>, client?: Pick<SSMClient, 'send'> }} [options] */
 export async function loadSettings({ env = process.env, client = new SSMClient({}) } = {}) {
   const path = env.SSM_PATH;
   if (!path) return { loaded: 0 };

@@ -71,5 +71,18 @@ commit "push with key"
 expect 0 no-token-refs.sh "git push with the deploy key passes"
 rm -rf "$R"
 
+# fix-has-test.sh (the title comes from the pull request)
+R=$(repo)
+mkdir -p "$R/apps/be"
+echo "export const a = 1;" > "$R/apps/be/a.js"
+commit "app code only"
+PR_TITLE="fix: a is wrong" expect 1 fix-has-test.sh "a fix with app code and no test fails"
+PR_TITLE="feat: add a" expect 0 fix-has-test.sh "a feature without a test is not this rule's business"
+echo "test('a', () => {});" > "$R/apps/be/a.test.js"
+echo "export const a = 2;" > "$R/apps/be/a.js"
+commit "app code and a test"
+PR_TITLE="fix: a is wrong" expect 0 fix-has-test.sh "a fix with a test passes"
+rm -rf "$R"
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

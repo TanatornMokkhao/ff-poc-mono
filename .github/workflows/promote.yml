@@ -83,9 +83,9 @@ jobs:
           missing=""
           for c in $(git rev-list "$LAST..$SHA"); do
             git merge-base --is-ancestor "$c" origin/main && continue
-            from=$(git log -1 --format=%B "$c" | sed -nE 's/.*cherry picked from commit ([0-9a-f]{40}).*/\1/p' | head -1)
-            if [ -n "$from" ] && git merge-base --is-ancestor "$from" origin/main; then
-              echo "${c::7} is a cherry-pick of main ${from::7}"; continue
+            picked_from=$(git log -1 --format=%B "$c" | sed -nE 's/.*cherry picked from commit ([0-9a-f]{40}).*/\1/p' | head -1)
+            if [ -n "$picked_from" ] && git merge-base --is-ancestor "$picked_from" origin/main; then
+              echo "${c::7} is a cherry-pick of main ${picked_from::7}"; continue
             fi
             missing+="${c::7} "
           done
