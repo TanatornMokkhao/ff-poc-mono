@@ -1,13 +1,15 @@
 name: Update menus
 
-# After every release, rewrites the dropdowns of Promote to prod (every rc whose version is not in
-# prod yet and whose builds exist, newest first) and Rollback production (every prod version,
-# newest first). A workflow file can only be changed with a key that may push to main; this uses
-# the deploy key.
+# After every release and every push to a release/* branch, rewrites the dropdowns of Promote to
+# prod (every release/X.Y.Z branch and every rc whose version is not in prod yet and whose builds
+# exist, newest first) and Rollback production (every prod version, newest first). A workflow file
+# can only be changed with a key that may push to main; this uses the deploy key.
 on:
   workflow_run:
     workflows: [Release]
     types: [completed]
+  push:
+    branches: ['release/**']
   workflow_dispatch:
 
 permissions:
@@ -45,6 +47,11 @@ jobs:
             ' "$file" > "$file.new" && mv "$file.new" "$file"
           }
           RCS=""
+          for b in $(git branch -r --list 'origin/release/*' | sed 's#.*origin/##' | sort -Vr); do
+            [[ "$b" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+            git rev-parse -q --verify "refs/tags/prod/v${b#release/}" >/dev/null && continue
+            RCS+="$b "
+          done
           for t in $(git tag --list 'staging/v*' --sort=-v:refname); do
             v=${t#staging/v}
             git rev-parse -q --verify "refs/tags/prod/v${v%-rc.*}" >/dev/null && continue
