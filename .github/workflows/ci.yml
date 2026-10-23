@@ -18,6 +18,7 @@ jobs:
     outputs:
       be: ${{ steps.c.outputs.be }}
       fe: ${{ steps.c.outputs.fe }}
+      infra: ${{ steps.c.outputs.infra }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +33,7 @@ jobs:
           for app in be fe; do
             if [ "$all" = true ] || grep -q "^apps/$app/" <<<"$CHANGED"; then echo "$app=true" >> "$GITHUB_OUTPUT"; fi
           done
+          if [ "$all" = true ] || grep -q '^infra/' <<<"$CHANGED"; then echo "infra=true" >> "$GITHUB_OUTPUT"; fi
           echo "$CHANGED"
 
   be:
@@ -41,14 +43,20 @@ jobs:
     defaults:
       run:
         working-directory: apps/be
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/be/package-lock.json
       - run: npm ci
+      - name: eslint on changed files
+        run: bash ../../scripts/checks/lint-app.sh be
       - run: npm test
       - run: docker build -t be-check .
       - name: The image starts
@@ -160,48 +168,85 @@ jobs:
     defaults:
       run:
         working-directory: apps/fe
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: apps/fe/package-lock.json
       - run: npm ci
+      - name: eslint on changed files
+        run: bash ../../scripts/checks/lint-app.sh fe
       - run: npx vitest run
       - run: npm run build
 
+  # Terraform format and validity on every change to infra/, so a broken file never reaches the
+  # plan on main. The plan itself stays in the Terraform workflow (it needs AWS).
+  infra:
+    needs: changes
+    if: ${{ needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - run: terraform fmt -check -recursive infra
+      - name: Validate
+        run: |
+          for d in infra infra/bootstrap; do
+            terraform -chdir=$d init -backend=false -input=false >/dev/null
+            terraform -chdir=$d validate
+          done
+
   # Repo-wide rules, on new code only (what this change adds or modifies). Each rule is a script in
   # scripts/checks/; checks.test.sh proves the home-made ones fail on the mistake they exist for.
-  # docs/lessons.md says which incident each rule comes from.
+  # docs/lessons.md says which incident each rule comes from. Every step runs even after one
+  # fails, so a change sees all its findings at once.
   rules:
     runs-on: ubuntu-latest
     env:
       BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       ACTIONLINT_VERSION: 1.7.7
+      GITLEAKS_VERSION: 8.21.2
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Install actionlint
+      - name: Install actionlint and gitleaks
         run: |
           curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
             | tar -xz -C "$RUNNER_TEMP" actionlint
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" gitleaks
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: The checks catch what they exist for
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/checks.test.sh
       - name: Executable files keep their mode
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/executable-files.sh
       - name: Refs are pushed with the deploy key
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/no-token-refs.sh
       - name: shellcheck
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/shell-scripts.sh
       - name: actionlint
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/workflows.sh
+      - name: No secrets in the new commits
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/secrets.sh
 
   # The required check: passes when every job that had to run passed, and skips count as pass.
   ci:
-    needs: [changes, be, migrations, fe, rules]
+    needs: [changes, be, migrations, fe, infra, rules]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
