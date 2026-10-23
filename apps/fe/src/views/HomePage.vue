@@ -13,7 +13,7 @@
       <ion-note v-if="config.flags.welcomeBanner" color="success">
         <p><strong>New:</strong> this banner is turned on by the FEATURE_WELCOME_BANNER setting of this stage.</p>
       </ion-note>
-      <p>Env: <strong>{{ config.env }}</strong> · FE build: <strong>{{ appVersion }}</strong> ({{ appCommit }})</p>
+      <p>Env: <strong>{{ config.env }}</strong> · Running: <strong>{{ config.versions?.fe || appVersion }}</strong> (built as {{ appVersion }}, {{ appCommit }})</p>
       <ion-card v-if="config.versions">
         <ion-card-header>
           <ion-card-subtitle>Release on {{ config.env }}</ion-card-subtitle>
