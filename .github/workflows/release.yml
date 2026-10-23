@@ -64,11 +64,18 @@ jobs:
             echo "::error::Tag $TAG must be staging/vX.Y.Z-rc.N or prod/vX.Y.Z."; exit 1
           fi
           SHA=$(git rev-parse "$TAG^{commit}")
+          # The newest rc on this commit (matching the pattern) whose builds exist; a refused or
+          # cancelled rc on the same commit built nothing and must not be reused.
+          built_rc() {
+            for t in $(git tag --points-at "$SHA" | grep -E "$1" | grep -vx "$TAG" | sort -Vr || true); do
+              gh release view "$t" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx web-build-prod.zip && { echo "$t"; return; }
+            done
+          }
           if [ "$STAGE" = prod ]; then
-            PREV=$(git tag --points-at "$SHA" | grep -E "^staging/v$VERSION-rc\.[0-9]+$" | sort -V | tail -1 || true)
-            [ -n "$PREV" ] || { echo "::error::No staging/v$VERSION-rc.N on ${SHA::7}: this commit never went to staging. Use Promote."; exit 1; }
+            PREV=$(built_rc "^staging/v$VERSION-rc\.[0-9]+$")
+            [ -n "$PREV" ] || { echo "::error::No built staging/v$VERSION-rc.N on ${SHA::7}: this commit never went to staging. Use Promote."; exit 1; }
           else
-            PREV=$(git tag --points-at "$SHA" | grep -E '^staging/v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | grep -vx "$TAG" | sort -V | tail -1 || true)
+            PREV=$(built_rc '^staging/v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$')
             # An rc is cut from main, or from a release/* branch (a hotfix cut from a prod tag).
             if ! git merge-base --is-ancestor "$SHA" origin/main && ! git branch -r --contains "$SHA" | grep -q 'origin/release/'; then
               echo "::error::$TAG is on ${SHA::7}, which is on neither main nor a release/* branch."; exit 1
