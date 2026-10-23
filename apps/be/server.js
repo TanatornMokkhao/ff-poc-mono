@@ -3,7 +3,12 @@ import { time } from './features/time/time.js';
 
 const version = () => process.env.APP_VERSION || 'dev';
 
+/**
+ * @param {import('node:http').IncomingMessage} req
+ * @param {import('node:http').ServerResponse} res
+ */
 export function handle(req, res) {
+  /** @type {import('./types.js').Send} */
   const send = (status, body) => {
     // Answers describe the running server, so a cached copy is always stale.
     res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store' });

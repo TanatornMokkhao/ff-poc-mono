@@ -1,12 +1,13 @@
 import http from 'node:http';
 import { handle } from './server.js';
 import { loadSettings } from './features/settings/settings.js';
+import { messageOf } from './errors.js';
 
 try {
   const { loaded } = await loadSettings();
   if (loaded) console.log(`loaded ${loaded} settings from ${process.env.SSM_PATH}`);
 } catch (err) {
-  console.error(`settings: ${err.message}`);
+  console.error(`settings: ${messageOf(err)}`);
   process.exit(1);
 }
 

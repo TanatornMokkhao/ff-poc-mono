@@ -7,7 +7,8 @@ cd "$(git rev-parse --show-toplevel)"
 files=()
 while IFS= read -r f; do
   case "$f" in
-    apps/"$APP"/node_modules/* | apps/"$APP"/dist/* | apps/"$APP"/android/* | apps/"$APP"/ios/*) continue ;;
+    # .d.ts files hold types only; the type check reads them, eslint has nothing to lint there.
+    apps/"$APP"/node_modules/* | apps/"$APP"/dist/* | apps/"$APP"/android/* | apps/"$APP"/ios/* | *.d.ts) continue ;;
     apps/"$APP"/*.js | apps/"$APP"/*.mjs | apps/"$APP"/*.ts | apps/"$APP"/*.vue) files+=("${f#apps/"$APP"/}") ;;
   esac
 done < <(bash scripts/checks/changed-files.sh)
