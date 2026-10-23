@@ -7,7 +7,7 @@ The same POC as [ff-poc-hub](https://github.com/TanatornMokkhao/ff-poc-hub) + ff
 <!-- status:start -->
 | Stage | version (be + fe, one commit) | mobile | Last deployed |
 | --- | --- | --- | --- |
-| staging | `1.0.0-rc.1` (5a1d57d) | `1.0.0-rc.1` | 2026-10-23 10:28 UTC ([run](https://github.com/TanatornMokkhao/ff-poc-mono/actions/runs/39939207592)) |
+| staging | `1.0.0-rc.3` (cb92e71) | `1.0.0-rc.3` | 2026-10-23 11:00 UTC ([run](https://github.com/TanatornMokkhao/ff-poc-mono/actions/runs/39942871319)) |
 | prod | none | `none` | - |
 
 _Each row is written by that stage's last successful deploy. mobile is the app build the testers or stores were last given, not what users have installed._
