@@ -12,7 +12,7 @@ on:
         type: choice
         options:
           # rc-menu:start
-          - 'none'
+          - '1.0.1-rc.2'
           # rc-menu:end
       notes:
         description: Release notes (optional)
