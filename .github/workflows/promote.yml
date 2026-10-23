@@ -1,8 +1,8 @@
 name: Promote to prod
 
 # Releases to prod exactly what an rc tested: pick it in the list (every rc whose version is not in
-# prod yet, newest first). Creates prod/vX.Y.Z on that rc's commit, then starts Release, which reuses
-# the rc's builds; Deploy waits for the production approval.
+# prod yet, newest first). Pushes prod/vX.Y.Z on that rc's commit, which starts Release; it reuses
+# the rc's builds, and Deploy waits for the production approval.
 on:
   workflow_dispatch:
     inputs:
@@ -37,9 +37,12 @@ jobs:
       RC_INPUT: ${{ inputs.rc }}
       NOTES: ${{ inputs.notes }}
     steps:
+      # The tag is pushed with the deploy key: GITHUB_TOKEN may not create a ref on a commit that
+      # holds workflow files, and a deploy key push starts Release by itself.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
 
       - name: Pick the rc
         run: |
@@ -85,8 +88,11 @@ jobs:
         run: |
           set -euo pipefail
           BODY=$(printf 'Promoted from %s (%s).\n\n%s\n' "$RC" "${SHA::7}" "$NOTES")
-          gh release create "prod/v$V" --target "$SHA" --title "prod/v$V" --notes "$BODY" --latest
-          gh workflow run release.yml --ref "prod/v$V" -f tag="prod/v$V"
+          git tag "prod/v$V" "$SHA"
+          git push -q origin "prod/v$V"
+          # Release starts from the push and may make the GitHub release first; either way it gets the notes.
+          if gh release view "prod/v$V" >/dev/null 2>&1; then gh release edit "prod/v$V" --notes "$BODY" --latest
+          else gh release create "prod/v$V" --verify-tag --title "prod/v$V" --notes "$BODY" --latest; fi
           {
             echo "### prod/v$V created from $RC"
             echo "Release reuses the $RC builds; approve **production** in Deploy and **app-store** in Release."

@@ -9,8 +9,8 @@ name: Release
 #                        web build, records deploy/prod/versions.yaml, and Deploy waits for the
 #                        production approval. The apps wait for app-store.
 # A later rc on the same commit reuses whatever that commit already built.
-# Promote starts this through workflow_dispatch, because a tag it creates with GITHUB_TOKEN starts
-# no workflow by itself.
+# workflow_dispatch is kept to re-run a release by hand; Promote pushes its tag with the deploy key,
+# which starts this like a person's push.
 on:
   push:
     tags: ['staging/v*', 'prod/v*']
