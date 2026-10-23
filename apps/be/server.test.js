@@ -24,6 +24,7 @@ test('health and version answer', async () => {
     const info = (await get(server, '/info')).body;
     assert.equal(info.service, 'be');
     assert.equal(typeof info.uptimeSeconds, 'number');
+    assert.equal(info.commit, process.env.GIT_SHA || 'unknown');
     assert.equal(info.env, 'local');
     assert.equal(info.dbPasswordSet, false);
     assert.equal(JSON.stringify(info).includes('password'), false, 'no secret values in /info');

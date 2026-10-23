@@ -23,6 +23,7 @@ export function handle(req, res) {
     return send(200, {
       service: 'be',
       version: version(),
+      commit: process.env.GIT_SHA || 'unknown',
       env: process.env.APP_ENV || 'local',
       logLevel: process.env.LOG_LEVEL || 'info',
       dbHost: process.env.DB_HOST || null,
