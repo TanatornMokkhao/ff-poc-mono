@@ -20,6 +20,7 @@ _Each row is written by that stage's last successful deploy. mobile is the app b
 | `apps/be/` | Node HTTP server, its Dockerfile, migrations (`MIGRATIONS.md`) |
 | `apps/fe/` | Ionic Vue web app and the Capacitor Android / iOS apps |
 | `deploy/<stage>/versions.yaml` | What each stage runs: one version and its commit. The Release workflow writes it; Rollback production points prod back. |
+| `scripts/release-notes.sh` | Release notes: commits since the previous prod release, grouped by prefix (feat / fix / other), cherry-picks already shipped left out. Promote writes them on every prod release. |
 | `scripts/deploy.sh` | Deploys a stage: be first (keys checked by name in Parameter Store, migrate, start, `/version` holds the commit), then fe (web build to S3 + CloudFront, `build-info.json` holds the commit) |
 | `infra/` | Terraform (account 375355731232, ap-southeast-1), every name `ff-poc-mono-*`: `bootstrap/` applied once by hand, the rest by the Terraform workflow after an approval on `infra` |
 | FE settings | Variables of the `build-staging` / `build-prod` environments of this repo (no approval needed to read them), baked into each rc's web and app builds |
