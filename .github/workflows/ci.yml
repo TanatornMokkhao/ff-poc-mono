@@ -228,6 +228,9 @@ jobs:
       - name: The checks catch what they exist for
         if: ${{ !cancelled() }}
         run: bash scripts/checks/checks.test.sh
+      - name: Release logic decides every known case right
+        if: ${{ !cancelled() }}
+        run: bash scripts/release-meta.test.sh
       - name: Executable files keep their mode
         if: ${{ !cancelled() }}
         run: bash scripts/checks/executable-files.sh
