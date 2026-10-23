@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
-import { loadSettings } from './settings.js';
+import { loadSettings } from './features/settings/settings.js';
 
 const dir = new URL('./migrations/', import.meta.url);
 

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { handle } from './server.js';
-import { loadSettings } from './settings.js';
+import { loadSettings } from './features/settings/settings.js';
 
 try {
   const { loaded } = await loadSettings();
