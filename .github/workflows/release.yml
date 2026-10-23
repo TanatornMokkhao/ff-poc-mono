@@ -134,7 +134,8 @@ jobs:
       matrix:
         stage: ${{ fromJSON(needs.meta.outputs.config_stages) }}
     runs-on: ubuntu-latest
-    environment: ${{ matrix.stage == 'prod' && 'production' || 'staging' }}
+    # Build-only environments: they hold the FE values and need no approval, unlike the deploy ones.
+    environment: ${{ matrix.stage == 'prod' && 'build-prod' || 'build-staging' }}
     defaults:
       run:
         working-directory: apps/fe

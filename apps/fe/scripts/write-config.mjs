@@ -20,7 +20,7 @@ for (const [key, example] of entries) {
   else missing.push(key);
 }
 if (missing.length) {
-  console.error(`No value for ${stage}: ${missing.join(', ')}. Set them as variables of the ${stage} environment in ff-poc-mono.`);
+  console.error(`No value for ${stage}: ${missing.join(', ')}. Set them as variables of the build-${stage} environment in ff-poc-mono.`);
   process.exit(1);
 }
 
