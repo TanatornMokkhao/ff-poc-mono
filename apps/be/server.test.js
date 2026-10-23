@@ -18,6 +18,7 @@ test('health and version answer', async () => {
   const server = http.createServer(handle).listen(0);
   try {
     assert.deepEqual((await get(server, '/health')).body, { ok: true });
+    assert.ok(!Number.isNaN(Date.parse((await get(server, '/time')).body.now)), '/time answers an ISO time');
     const v = (await get(server, '/version')).body;
     assert.equal(v.service, 'be');
     assert.equal(v.commit, process.env.GIT_SHA || 'unknown');
