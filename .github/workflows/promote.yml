@@ -1,15 +1,19 @@
 name: Promote to prod
 
-# Releases to prod exactly what an rc tested. Leave "rc" empty to promote what staging runs now; give
-# a number to promote that rc of the same version instead. Creates prod/vX.Y.Z on that rc's commit,
-# then starts Release, which reuses the rc's builds; Deploy waits for the production approval.
+# Releases to prod exactly what an rc tested: pick it in the list (every rc whose version is not in
+# prod yet, newest first). Creates prod/vX.Y.Z on that rc's commit, then starts Release, which reuses
+# the rc's builds; Deploy waits for the production approval.
 on:
   workflow_dispatch:
     inputs:
+      # The list is rewritten by Update menus after every release; do not edit it by hand.
       rc:
-        description: rc number to promote (empty = what staging runs now)
-        type: string
-        required: false
+        description: rc to promote (newest first; staging runs the first one unless a newer rc failed)
+        type: choice
+        options:
+          # rc-menu:start
+          - '1.0.0-rc.3'
+          # rc-menu:end
       notes:
         description: Release notes (optional)
         type: string
@@ -39,18 +43,16 @@ jobs:
       - name: Pick the rc
         run: |
           set -euo pipefail
-          CUR=$(sed -n 's/^version:[[:space:]]*\([^[:space:]#]*\).*/\1/p' deploy/staging/versions.yaml)
-          [[ "$CUR" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]] || { echo "::error::Staging runs '$CUR', not an rc."; exit 1; }
-          V="${BASH_REMATCH[1]}"; N="${RC_INPUT:-${BASH_REMATCH[2]}}"
-          [[ "$N" =~ ^[0-9]+$ ]] || { echo "::error::rc must be a number, got '$N'."; exit 1; }
-          RC="staging/v$V-rc.$N"
+          [[ "$RC_INPUT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.[0-9]+$ ]] || { echo "::error::'$RC_INPUT' is not an rc."; exit 1; }
+          V="${BASH_REMATCH[1]}"; RC="staging/v$RC_INPUT"
           git rev-parse -q --verify "refs/tags/$RC" >/dev/null || { echo "::error::There is no $RC."; exit 1; }
           if git rev-parse -q --verify "refs/tags/prod/v$V" >/dev/null; then
             echo "::error::prod/v$V already exists. Release tags are permanent: release the next version."; exit 1
           fi
           echo "V=$V" >> "$GITHUB_ENV"; echo "RC=$RC" >> "$GITHUB_ENV"
           echo "SHA=$(git rev-parse "$RC^{commit}")" >> "$GITHUB_ENV"
-          [ -z "$RC_INPUT" ] || [ "$N" = "${BASH_REMATCH[2]}" ] || echo "::warning::Promoting $RC while staging runs $CUR."
+          CUR=$(sed -n 's/^version:[[:space:]]*\([^[:space:]#]*\).*/\1/p' deploy/staging/versions.yaml)
+          [ "$CUR" = "$RC_INPUT" ] || echo "::warning::Promoting $RC while staging runs $CUR."
 
       # Every commit prod would gain must already be on main, directly or as a cherry-pick of a main
       # commit; otherwise the next release from main would lose it.
