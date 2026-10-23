@@ -181,8 +181,8 @@ jobs:
       - name: GitHub release (reuse the one made in the UI, if any)
         run: |
           FLAG=$([ "$STAGE" = staging ] && echo --prerelease || echo --latest)
-          if gh release view "$TAG" >/dev/null 2>&1; then gh release edit "$TAG" $FLAG
-          else gh release create "$TAG" --verify-tag --generate-notes $FLAG; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then gh release edit "$TAG" "$FLAG"
+          else gh release create "$TAG" --verify-tag --generate-notes "$FLAG"; fi
           gh release upload "$TAG" upload/* --clobber
 
   # Writes what the stage runs on main; that push starts Deploy. It goes through the deploy key,
@@ -207,7 +207,7 @@ jobs:
           F="deploy/$STAGE/versions.yaml"
           git config user.name "ff-poc release bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for i in 1 2 3; do
+          for _ in 1 2 3; do
             sed -i -E "s/^(version:[[:space:]]*)[^[:space:]#]+.*/\1$VERSION   # ${SHA::7}/; s/^(mobile:[[:space:]]*)[^[:space:]#]+/\1$VERSION/" "$F"
             cat "$F"
             git commit -qam "$STAGE: release $VERSION ($TAG)" || { echo "Already recorded."; break; }
@@ -309,7 +309,7 @@ jobs:
           gh release upload "$TAG" upload/* --clobber
           {
             echo "### Apps $VERSION ($STAGE) attached to $TAG"
-            echo "$([ -n "$BUILT" ] && echo "Built after the approval." || echo "The builds of $FROM, no rebuild.")"
+            if [ -n "$BUILT" ]; then echo "Built after the approval."; else echo "The builds of $FROM, no rebuild."; fi
             echo; echo '```'; ls -1 upload; echo '```'
             echo "Store and tester delivery are simulated in this POC."
           } >> "$GITHUB_STEP_SUMMARY"
