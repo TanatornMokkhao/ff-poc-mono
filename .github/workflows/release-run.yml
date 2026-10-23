@@ -262,6 +262,8 @@ jobs:
             git push -q origin HEAD:main && break
             git fetch -q origin main && git reset -q --hard origin/main
           done
+          # The Promote list must show this release now, not when the app approval ends the run.
+          gh workflow run menus.yml --ref main
           {
             echo "### $TAG"
             echo '```yaml'; cat "$F"; echo '```'
