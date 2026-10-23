@@ -22,7 +22,7 @@ _Each row is written by that stage's last successful deploy. mobile is the app b
 | `deploy/<stage>/versions.yaml` | What each stage runs: one version and its commit. The Release workflow writes it; Rollback production points prod back. |
 | `scripts/deploy.sh` | Deploys a stage: be first (keys checked by name in Parameter Store, migrate, start, `/version` holds the commit), then fe (web build to S3 + CloudFront, `build-info.json` holds the commit) |
 | `infra/` | Terraform (account 375355731232, ap-southeast-1), every name `ff-poc-mono-*`: `bootstrap/` applied once by hand, the rest by the Terraform workflow after an approval on `infra` |
-| FE settings | Variables of the `staging` / `production` environments of this repo, baked into each rc's web and app builds |
+| FE settings | Variables of the `build-staging` / `build-prod` environments of this repo (no approval needed to read them), baked into each rc's web and app builds |
 | BE settings | Parameter Store `/ff-poc-mono/<stage>/be/<KEY>`, read by the server at boot; never in git or GitHub |
 
 Sites: [staging](https://d2opbrm30xq1x7.cloudfront.net/) · [prod](https://dwgvwer6j5v4n.cloudfront.net/)
