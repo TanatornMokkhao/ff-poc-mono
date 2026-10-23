@@ -108,7 +108,7 @@ jobs:
       - name: Check Firebase config is in the APK
         if: ${{ env.HAS_GOOGLE_SERVICES == 'true' }}
         run: |
-          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -1)
+          AAPT=$(find "$ANDROID_HOME"/build-tools -mindepth 2 -maxdepth 2 -name aapt | sort -V | tail -1)
           "$AAPT" dump resources android/app/build/outputs/apk/debug/app-debug.apk | grep -q google_app_id
 
       - name: Remove keystore
