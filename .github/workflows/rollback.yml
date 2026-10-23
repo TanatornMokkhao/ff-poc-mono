@@ -1,16 +1,21 @@
 name: Rollback production
 
 # Puts production back on an earlier prod release, using the builds that release already has
-# (no new tag, no rebuild). Leave the version empty to go to the release before the current one.
+# (no new tag, no rebuild). "previous" goes to the release before the current one.
 # be and fe go back together: they are one version of this repo. The mobile app cannot be rolled
 # back in the stores; its line in deploy/prod/versions.yaml is left as is.
 on:
   workflow_dispatch:
     inputs:
+      # The list is rewritten by Update menus after every release; do not edit it by hand.
       version:
-        description: Prod version to go back to, X.Y.Z (empty = the one before the current)
-        type: string
-        required: false
+        description: Prod version to go back to
+        type: choice
+        default: previous
+        options:
+          - previous
+          # prod-menu:start
+          # prod-menu:end
       reason:
         description: Why (goes into the commit message)
         type: string
@@ -44,6 +49,7 @@ jobs:
           set -euo pipefail
           CUR=$(sed -n 's/^version:[[:space:]]*\([^[:space:]#]*\).*/\1/p' deploy/prod/versions.yaml)
           [ "$CUR" != none ] || { echo "::error::Production runs nothing yet."; exit 1; }
+          [ "$WANT" != previous ] || WANT=""
           if [ -n "$WANT" ]; then
             V="${WANT#v}"
             [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$WANT' is not X.Y.Z."; exit 1; }

@@ -32,8 +32,8 @@ Sites: [staging](https://d2opbrm30xq1x7.cloudfront.net/) · [prod](https://dwgvw
 1. Merge pull requests into `main`. CI runs only the jobs of the app a change touches; the `ci` check is the one required.
 2. **Releases → Draft a new release**, tag `staging/v1.0.0-rc.1` on `main`, Publish. Release builds the be image and the web once, records `deploy/staging/versions.yaml` and deploys staging. Approve `app-test` to build the apps.
 3. A fix during testing: merge it, then release `staging/v1.0.0-rc.2`.
-4. Staging passes: Actions → **Promote to prod** (leave `rc` empty, or give an older rc number). It checks every commit is on `main`, creates `prod/v1.0.0` on the rc's commit and reuses its builds; approve `production` (and `app-store` for the apps).
-5. Rollback: Actions → **Rollback production** (empty version = the previous prod release), then approve `production`. be and fe go back together. It refuses a version older than any contract migration's `removes-use-from`.
+4. Staging passes: Actions → **Promote to prod**, pick the rc in the list (every rc not yet in prod, newest first; Update menus keeps it current after each release). It checks every commit is on `main`, creates `prod/v1.0.0` on the rc's commit and reuses its builds; approve `production` (and `app-store` for the apps).
+5. Rollback: Actions → **Rollback production**, pick a prod version or `previous`, then approve `production`. be and fe go back together. It refuses a version older than any contract migration's `removes-use-from`.
 6. Hotfix while `main` holds work that cannot ship yet: fix on `main` first (a normal pull request), then cut a branch from what prod runs and cherry-pick the fix onto it:
    ```bash
    git fetch --tags origin
