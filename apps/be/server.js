@@ -9,6 +9,7 @@ export function handle(req, res) {
     res.end(JSON.stringify(body));
   };
   if (req.url === '/health') return send(200, { ok: true });
+  if (req.url === '/time') return send(200, { now: new Date().toISOString() });
   if (req.url === '/version') {
     return send(200, {
       service: 'be',
