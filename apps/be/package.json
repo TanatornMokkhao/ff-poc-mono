@@ -1,0 +1,13 @@
+{
+  "name": "ff-poc-be",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "3.1144.0",
+    "pg": "8.23.1"
+  }
+}

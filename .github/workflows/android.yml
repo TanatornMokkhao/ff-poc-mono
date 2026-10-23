@@ -1,0 +1,157 @@
+name: Android
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+      version_name:
+        type: string
+        default: 0.0.0-dev
+      version_code:
+        type: string
+        default: ''
+      stage:
+        description: staging or prod; bakes that stage's config.json (from the caller's config-<stage> artifact)
+        type: string
+        default: ''
+      upload_play:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ inputs.version_code || github.run_number }}
+      VERSION_NAME: ${{ inputs.version_name || '0.0.0-dev' }}
+      VITE_APP_VERSION: ${{ inputs.version_name || '0.0.0-dev' }}
+      VITE_GIT_SHA: ${{ inputs.ref || github.sha }}
+      VITE_API_ENV: ${{ inputs.stage || 'dev' }}
+      SUFFIX: ${{ inputs.stage && format('-{0}', inputs.stage) || '' }}
+      # The staging app is a separate app (its own id in Firebase), so testers can keep both.
+      APP_ID_SUFFIX: ${{ inputs.stage == 'staging' && '.staging' || '' }}
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      HAS_GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
+    defaults:
+      run:
+        working-directory: apps/fe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/fe/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.stage != '' }}
+        with:
+          name: config-${{ inputs.stage }}
+          path: apps/fe/public
+      - name: Local config.json (not a release build)
+        if: ${{ inputs.stage == '' }}
+        run: node scripts/write-config.mjs
+      - run: npm run build
+      - run: npx cap sync android
+
+      - name: Write google-services.json
+        if: ${{ env.HAS_GOOGLE_SERVICES == 'true' }}
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          # Until the staging app is registered in Firebase, build it under the prod id rather than fail.
+          if [ -n "$APP_ID_SUFFIX" ] && ! jq -e --arg p "com.tanatorn.ioniccipoc$APP_ID_SUFFIX" \
+              'any(.client[]; .client_info.android_client_info.package_name == $p)' android/app/google-services.json >/dev/null; then
+            echo "::warning::google-services.json has no com.tanatorn.ioniccipoc$APP_ID_SUFFIX app: building the staging app under the prod id."
+            echo "APP_ID_SUFFIX=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Debug APK
+        working-directory: apps/fe/android
+        run: ./gradlew assembleDebug
+
+      # Keystore is written outside the workspace so it can never be uploaded with the artifacts.
+      - name: Decode keystore
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Signed release APK and AAB
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        working-directory: apps/fe/android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ vars.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease bundleRelease
+
+      - name: Check Firebase config is in the APK
+        if: ${{ env.HAS_GOOGLE_SERVICES == 'true' }}
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -1)
+          "$AAPT" dump resources android/app/build/outputs/apk/debug/app-debug.apk | grep -q google_app_id
+
+      - name: Remove keystore
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP/release.keystore" "$RUNNER_TEMP/sa.json" android/app/google-services.json
+
+      - name: Check no secret files are left for upload
+        run: |
+          if find android/app/build/outputs -iname '*.keystore' -o -iname '*.jks' -o -iname 'google-services.json' | grep -q .; then
+            echo "Secret file found in build outputs"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk${{ env.SUFFIX }}
+          path: apps/fe/android/app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        with:
+          name: android-release-${{ env.VERSION_NAME }}${{ env.SUFFIX }}
+          path: |
+            apps/fe/android/app/build/outputs/apk/release/*.apk
+            apps/fe/android/app/build/outputs/bundle/release/*.aab
+
+  # Off until a Play Console account exists: set repo variable PLAY_UPLOAD_ENABLED=true
+  # and secret PLAY_SERVICE_ACCOUNT_JSON. The first release must be uploaded by hand.
+  play-internal:
+    needs: build
+    if: ${{ inputs.upload_play && vars.PLAY_UPLOAD_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/fe
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-release-${{ inputs.version_name }}-prod
+          path: release
+
+      - uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tanatorn.ioniccipoc
+          releaseFiles: release/bundle/release/*.aab
+          track: internal
+          status: completed

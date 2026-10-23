@@ -1,0 +1,172 @@
+name: Terraform
+
+# Pull requests: fmt and validate, then plan as ff-poc-mono-terraform-plan (read only, GitHub OIDC) and
+# post the result as one PR comment, kept up to date on every push. Pull requests from forks get
+# no plan.
+# main: plan again (read only) and show it in the run summary; when it changes anything, apply
+# waits for an approval on the infra environment and then applies THAT saved plan as
+# ff-poc-mono-terraform, so what was approved is exactly what runs (a plan made stale by another
+# change is refused by Terraform, never applied). infra/bootstrap/ is applied by hand.
+on:
+  pull_request:
+    paths: ['infra/**']
+  push:
+    branches: [main]
+    paths: ['infra/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One queue for main; each pull request plans in its own.
+concurrency:
+  group: terraform-${{ github.event_name == 'pull_request' && github.event.number || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TF_VERSION: 1.10.5
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - run: terraform fmt -check -recursive infra
+      - name: Validate
+        run: |
+          for d in infra infra/bootstrap; do
+            terraform -chdir=$d init -backend=false -input=false >/dev/null
+            terraform -chdir=$d validate
+          done
+
+  plan:
+    needs: check
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+      issues: write
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.number }}
+      SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+
+      # -lock=false: the plan role cannot write the lock file, and a plan changes nothing.
+      - name: Plan
+        id: plan
+        run: |
+          set -uo pipefail
+          terraform plan -input=false -no-color -lock=false -detailed-exitcode -out=tf.plan > plan.txt 2>&1
+          code=$?
+          cat plan.txt
+          case $code in
+            0) echo "changes=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "changes=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "failed=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+          [ "$code" = 1 ] || terraform show -json tf.plan > plan.json
+          exit 0
+
+      - name: Write the summary
+        run: |
+          set -euo pipefail
+          {
+            echo '<!-- terraform-plan -->'
+            if [ "${{ steps.plan.outputs.failed }}" = true ]; then
+              echo "### Terraform plan failed"; echo; echo '```'; tail -40 plan.txt; echo '```'
+            else
+              jq -r -f ../.github/scripts/plan-summary.jq plan.json
+              echo
+              echo "<details><summary>Full plan</summary>"; echo; echo '```'
+              sed -n '/Terraform will perform\|No changes/,$p' plan.txt | head -c 55000
+              echo '```'; echo "</details>"
+            fi
+            echo
+            if [ -n "$PR" ]; then
+              echo "_Planned for ${SHA::7} as \`ff-poc-mono-terraform-plan\` (read only). After the merge, main plans again and the apply waits for an approval on \`infra\`._"
+            elif [ "${{ steps.plan.outputs.changes }}" = true ]; then
+              echo "_Planned for ${SHA::7}. **Approve the infra deployment** of this run to apply exactly this plan; reject it to apply nothing._"
+            else
+              echo "_Planned for ${SHA::7}. Nothing to apply, so no approval is asked._"
+            fi
+          } > summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.plan.outputs.failed }}" != true ] && jq -e '[(.resource_changes // [])[] | select(.change.actions | index("delete"))] | length > 0' plan.json >/dev/null; then
+            echo "::warning::This change deletes or replaces AWS resources; see the plan."
+          fi
+
+      - name: Comment on the pull request
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          MARK='<!-- terraform-plan -->'
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$MARK\"))) | .id" | head -1)
+          if [ -n "$ID" ]; then gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -F body=@summary.md >/dev/null
+          else gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@summary.md >/dev/null; fi
+
+      - name: Keep the plan for the apply
+        if: ${{ github.event_name != 'pull_request' && steps.plan.outputs.changes == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-plan
+          path: |
+            infra/tf.plan
+            infra/.terraform.lock.hcl
+          retention-days: 1
+
+      - name: Fail on a failed plan
+        if: ${{ steps.plan.outputs.failed == 'true' }}
+        run: echo "::error::terraform plan failed; see the summary." && exit 1
+
+  apply:
+    needs: plan
+    if: ${{ github.event_name != 'pull_request' && needs.plan.outputs.changes == 'true' }}
+    runs-on: ubuntu-latest
+    environment: infra
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: tf-plan
+          path: infra
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+      # The approved plan, as saved; Terraform refuses it if the state moved since it was made.
+      - run: terraform apply -input=false -no-color tf.plan
+      - name: Outputs
+        run: |
+          { echo "### Applied"; echo '```'; terraform output -no-color; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

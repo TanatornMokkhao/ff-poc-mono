@@ -1,0 +1,102 @@
+name: iOS
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+      version_name:
+        type: string
+        default: 0.0.0-dev
+      build_number:
+        type: string
+        default: ''
+      stage:
+        description: staging or prod; bakes that stage's config.json (from the caller's config-<stage> artifact)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  simulator-build:
+    # Unsigned Simulator build only. A device build or TestFlight upload needs a paid Apple Developer account.
+    runs-on: macos-latest
+    env:
+      VERSION_NAME: ${{ inputs.version_name || '0.0.0-dev' }}
+      BUILD_NUMBER: ${{ inputs.build_number || github.run_number }}
+      VITE_APP_VERSION: ${{ inputs.version_name || '0.0.0-dev' }}
+      VITE_GIT_SHA: ${{ inputs.ref || github.sha }}
+      VITE_API_ENV: ${{ inputs.stage || 'dev' }}
+      SUFFIX: ${{ inputs.stage && format('-{0}', inputs.stage) || '' }}
+    defaults:
+      run:
+        working-directory: apps/fe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/fe/package-lock.json
+
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.stage != '' }}
+        with:
+          name: config-${{ inputs.stage }}
+          path: apps/fe/public
+      - name: Local config.json (not a release build)
+        if: ${{ inputs.stage == '' }}
+        run: node scripts/write-config.mjs
+      - run: npm run build
+      - run: npx cap sync ios
+
+      - name: xcodebuild (Simulator, unsigned)
+        working-directory: apps/fe/ios/App
+        run: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            MARKETING_VERSION="${VERSION_NAME%%-*}" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            build
+
+      - name: Launch in Simulator and screenshot
+        env:
+          BUNDLE_ID: com.tanatorn.ioniccipoc
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          echo "Simulator: $DEVICE"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" ios/App/build/Build/Products/Debug-iphonesimulator/App.app
+          xcrun simctl launch "$DEVICE" "$BUNDLE_ID"
+          sleep 20
+          # Fails the job if the app crashed after launch.
+          xcrun simctl spawn "$DEVICE" launchctl list | grep "UIKitApplication:$BUNDLE_ID"
+          xcrun simctl io "$DEVICE" screenshot ios-screenshot.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-screenshot-${{ env.VERSION_NAME }}${{ env.SUFFIX }}
+          path: apps/fe/ios-screenshot.png
+
+      - name: Zip .app
+        run: cd ios/App/build/Build/Products/Debug-iphonesimulator && zip -r "$GITHUB_WORKSPACE/App-simulator.zip" App.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app-${{ env.VERSION_NAME }}${{ env.SUFFIX }}
+          path: App-simulator.zip

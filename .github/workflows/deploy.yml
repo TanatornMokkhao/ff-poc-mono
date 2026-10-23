@@ -1,0 +1,58 @@
+name: Deploy
+
+# A change to deploy/<stage>/ or scripts/ on main deploys that stage. Release and Rollback start
+# this by hand (workflow_dispatch), since their pushes are made with GITHUB_TOKEN.
+# staging deploys at once; prod waits for an approval on the production environment.
+on:
+  push:
+    branches: [main]
+    paths: ['deploy/**', 'scripts/**']
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Environment to deploy
+        type: choice
+        options: [staging, prod]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      staging: ${{ steps.c.outputs.staging }}
+      prod: ${{ steps.c.outputs.prod }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: c
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "${{ inputs.stage }}=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then CHANGED=$(git diff --name-only "$BEFORE" HEAD)
+          else CHANGED=$(git ls-files); fi
+          echo "$CHANGED"
+          grep -qE '^(deploy/staging/|scripts/)' <<< "$CHANGED" && echo "staging=true" >> "$GITHUB_OUTPUT" || true
+          grep -qE '^deploy/prod/' <<< "$CHANGED" && echo "prod=true" >> "$GITHUB_OUTPUT" || true
+
+  staging:
+    needs: changes
+    if: ${{ needs.changes.outputs.staging == 'true' }}
+    uses: ./.github/workflows/deploy-stage.yml
+    with:
+      stage: staging
+    secrets: inherit
+
+  prod:
+    needs: changes
+    if: ${{ needs.changes.outputs.prod == 'true' }}
+    uses: ./.github/workflows/deploy-stage.yml
+    with:
+      stage: prod
+    secrets: inherit

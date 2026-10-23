@@ -1,0 +1,103 @@
+name: Deploy one stage
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+# One queue per stage, so a prod deploy waiting for approval never holds up staging.
+concurrency:
+  group: deploy-${{ inputs.stage }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.stage == 'prod' && 'production' || 'staging' }}
+      url: ${{ vars.WEB_URL }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # Two roles through GitHub OIDC, no AWS keys stored. The runtime role is what the server runs
+      # as (its credentials go to the container); the deploy role, assumed last, is what this job
+      # runs as. Both accept only a job in this stage's environment.
+      - name: Credentials for the server (runtime role)
+        id: runtime
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_RUNTIME_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          output-credentials: true
+      - name: Credentials for this job (deploy role)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - run: bash scripts/deploy.sh "${{ inputs.stage }}"
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+          WEB_BUCKET: ${{ vars.WEB_BUCKET }}
+          CF_DISTRIBUTION_ID: ${{ vars.CF_DISTRIBUTION_ID }}
+          WEB_URL: ${{ vars.WEB_URL }}
+          RUNTIME_ACCESS_KEY_ID: ${{ steps.runtime.outputs.aws-access-key-id }}
+          RUNTIME_SECRET_ACCESS_KEY: ${{ steps.runtime.outputs.aws-secret-access-key }}
+          RUNTIME_SESSION_TOKEN: ${{ steps.runtime.outputs.aws-session-token }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ inputs.stage }} deployed"
+            echo '```yaml'; cat "deploy/${{ inputs.stage }}/versions.yaml"; echo '```'
+            echo "Site: ${{ vars.WEB_URL }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Rewrites only this stage's row of the README's "Running now" block. README is outside the
+      # Deploy paths, so this commit deploys nothing.
+      - name: Show what runs where in the README
+        env:
+          STAGE: ${{ inputs.stage }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          DEPLOYED="$GITHUB_WORKSPACE/deploy/$STAGE/versions.yaml"
+          v() { sed -n "s/^$1:[[:space:]]*\([^[:space:]#]*\)[[:space:]]*#*[[:space:]]*\(.*\)/\1 \2/p" "$DEPLOYED"; }
+          VERSION=$(set -- $(v version); [ "${1:-none}" = none ] && echo none || echo "\`$1\`${2:+ ($2)}")
+          MOBILE=$(set -- $(v mobile); echo "${1:-none}")
+          ROW="| $STAGE | $VERSION | \`$MOBILE\` | $(date -u '+%Y-%m-%d %H:%M UTC') ([run]($RUN_URL)) |"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for i in 1 2 3 4 5; do
+            rm -rf status && git fetch -q origin main && git worktree add -q -f --detach status origin/main
+            cd status
+            row() { if [ "$1" = "$STAGE" ]; then echo "$ROW"; else grep -E "^\| $1 \|" README.md || echo "| $1 | - | - | - |"; fi; }
+            {
+              echo "<!-- status:start -->"
+              echo "| Stage | version (be + fe, one commit) | mobile | Last deployed |"
+              echo "| --- | --- | --- | --- |"
+              row staging
+              row prod
+              echo
+              echo "_Each row is written by that stage's last successful deploy. mobile is the app build the testers or stores were last given, not what users have installed._"
+              echo "<!-- status:end -->"
+            } > ../status-block.md
+            awk -v f=../status-block.md '/<!-- status:start -->/ {while ((getline l < f) > 0) print l; skip=1; next} /<!-- status:end -->/ {skip=0; next} !skip {print}' README.md > README.new
+            mv README.new README.md
+            if git diff --quiet; then echo "README already current."; cd ..; break; fi
+            git commit -qam "docs: README shows $STAGE deploy"
+            if git push -q origin HEAD:main; then cd ..; break; fi
+            cd ..; git worktree remove -f status; sleep 3
+          done

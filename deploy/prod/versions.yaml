@@ -1,0 +1,5 @@
+# What prod runs: one version of this whole repo (be and fe from the same commit).
+# The Release workflow writes it for every prod release, Rollback production points it back; the
+# Deploy workflow deploys it after the production approval.
+version: none
+mobile: none   # reference only; the app ships through the stores

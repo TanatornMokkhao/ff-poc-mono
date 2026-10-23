@@ -1,0 +1,149 @@
+name: Start hotfix
+
+# For when main holds work that cannot ship yet but prod needs a fix now. Fix on main first (a
+# normal pull request), then run this with that main commit. It cherry-picks the commit onto
+# release/<next patch>, cut from what prod runs, runs both apps' tests there, and releases
+# staging/v<next>-rc.N from it. Then test staging and Promote. Nothing is merged back: the fix is
+# already on main.
+#
+# Cherry-pick conflicts: pick it by hand on the release branch (git cherry-pick -x), push, and run
+# again with "picked". A fix that cannot come from main at all needs "reason"; Promote shows it.
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The fix commit on main (full or short sha)
+        type: string
+        required: true
+      from:
+        description: Prod version to fix (empty = what prod runs now)
+        type: string
+        required: false
+      picked:
+        description: Only after a conflict - your cherry-pick of it on release/<version> (sha)
+        type: string
+        required: false
+      reason:
+        description: Only for a fix that is not on main - why (shown at Promote)
+        type: string
+        required: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      COMMIT: ${{ inputs.commit }}
+      FROM_INPUT: ${{ inputs.from }}
+      PICKED: ${{ inputs.picked }}
+      REASON: ${{ inputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Work out the version
+        run: |
+          set -euo pipefail
+          FROM="${FROM_INPUT:-$(sed -n 's/^version:[[:space:]]*\([^[:space:]#]*\).*/\1/p' deploy/prod/versions.yaml)}"
+          [[ "$FROM" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "::error::'$FROM' is not a prod version X.Y.Z."; exit 1; }
+          git rev-parse -q --verify "refs/tags/prod/v$FROM" >/dev/null || { echo "::error::There is no prod/v$FROM."; exit 1; }
+          LINE="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          # An unreleased release branch whose every rc is its own takes the next rc. Otherwise the
+          # hotfix gets the patch after every X.Y version tagged so far, main's rcs included, so one
+          # version number never names two different sets of code.
+          NEXT=""
+          for v in $(git branch -r --list "origin/release/$LINE.*" | sed 's#.*origin/release/##' | sort -V); do
+            git rev-parse -q --verify "refs/tags/prod/v$v" >/dev/null && continue
+            own=true
+            for t in $(git tag --list "staging/v$v-rc.*"); do
+              git merge-base --is-ancestor "$t" "origin/release/$v" || own=false
+            done
+            [ "$own" = true ] && NEXT="$v"
+          done
+          if [ -z "$NEXT" ]; then
+            HIGH=$(git tag --list "prod/v$LINE.*" "staging/v$LINE.*" | sed -E 's#^(prod|staging)/v##; s/-rc\.[0-9]+$//' | sort -V | tail -1)
+            NEXT="$LINE.$(( ${HIGH##*.} + 1 ))"
+          fi
+          if git rev-parse -q --verify "refs/tags/prod/v$NEXT" >/dev/null; then
+            echo "::error::prod/v$NEXT already exists; give 'from' as the newest prod version."; exit 1
+          fi
+          N=$(( $(git tag --list "staging/v$NEXT-rc.*" | wc -l) + 1 ))
+          PROD=$(git rev-parse "prod/v$FROM^{commit}")
+          { echo "FROM=$FROM"; echo "NEXT=$NEXT"; echo "RC=staging/v$NEXT-rc.$N"; echo "PROD=$PROD"; echo "RB=release/$NEXT"; } >> "$GITHUB_ENV"
+          echo "Hotfix $FROM -> $NEXT (prod runs ${PROD::7}), release staging/v$NEXT-rc.$N"
+
+      - name: Put the main fix on release/${{ env.NEXT }}
+        run: |
+          set -euo pipefail
+          MAIN_FIX=$(git rev-parse "$COMMIT^{commit}") || { echo "::error::No commit $COMMIT."; exit 1; }
+          if ! git merge-base --is-ancestor "$MAIN_FIX" origin/main; then
+            [ -n "$REASON" ] || { echo "::error::${MAIN_FIX::7} is not on main. Merge the fix into main first, then run this with that commit (or give 'reason' for a fix main cannot take)."; exit 1; }
+            echo "::warning::${MAIN_FIX::7} is not on main; going ahead because: $REASON"
+          fi
+          git config user.name "ff-poc release bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$PICKED" ]; then
+            FIX=$(git rev-parse "$PICKED^{commit}") || { echo "::error::No commit $PICKED."; exit 1; }
+            git merge-base --is-ancestor "$FIX" "origin/$RB" 2>/dev/null || { echo "::error::${FIX::7} is not on $RB; push your cherry-pick there first."; exit 1; }
+            git log -1 --format=%B "$FIX" | grep -q "cherry picked from commit $MAIN_FIX" \
+              || [ -n "$REASON" ] || { echo "::error::${FIX::7} does not say 'cherry picked from commit $MAIN_FIX' (use git cherry-pick -x)."; exit 1; }
+            git switch -q --detach "$FIX"
+          else
+            if git show-ref -q --verify "refs/remotes/origin/$RB"; then git switch -q -c "$RB" "origin/$RB"
+            else git switch -q -c "$RB" "$PROD"; fi
+            if ! git cherry-pick -x "$MAIN_FIX" >/dev/null 2>&1; then
+              CONFLICTS=$(git diff --name-only --diff-filter=U | paste -sd, -)
+              if [ -z "$CONFLICTS" ]; then
+                echo "::error::${MAIN_FIX::7} changes nothing on $RB: the fix is already there."; exit 1
+              fi
+              git cherry-pick --abort
+              # The branch is pushed without the fix, so the cherry-pick by hand has a place to go.
+              git push -q origin "$RB" 2>/dev/null || true
+              echo "::error::${MAIN_FIX::7} does not apply cleanly on $RB (conflicts: $CONFLICTS). Pick it by hand: git fetch && git switch $RB && git cherry-pick -x ${MAIN_FIX::7}, fix, push, then run this again with picked=<your commit>."
+              exit 1
+            fi
+            FIX=$(git rev-parse HEAD)
+          fi
+          [ "$FIX" != "$PROD" ] || { echo "::error::${FIX::7} is what prod/v$FROM already ships."; exit 1; }
+          git merge-base --is-ancestor "$PROD" "$FIX" || { echo "::error::${FIX::7} does not build on prod/v$FROM (${PROD::7})."; exit 1; }
+          { echo "FIX=$FIX"; echo "MAIN_FIX=$MAIN_FIX"; } >> "$GITHUB_ENV"
+
+      # The release branch never ran CI; test what will ship before anything is tagged.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test both apps on the release branch
+        run: |
+          set -euo pipefail
+          (cd apps/be && npm ci --no-audit --no-fund && npm test)
+          (cd apps/fe && npm ci --no-audit --no-fund && npx vitest run && npm run build)
+          [ -n "$PICKED" ] || git push -q origin "$RB"
+          echo "${MAIN_FIX::7} on main -> ${FIX::7} on $RB, tests passed"
+
+      - name: Release ${{ env.RC }}
+        run: |
+          set -euo pipefail
+          NOTE="${FIX::7} on $RB, cherry-picked from main ${MAIN_FIX::7}."
+          TRAILER="Fix-from-main: $MAIN_FIX"
+          if [ -n "$REASON" ]; then NOTE="${FIX::7} on $RB, NOT on main: $REASON"; TRAILER="Hotfix-not-on-main: $REASON"; fi
+          gh release create "$RC" --target "$FIX" --title "$RC" --prerelease \
+            --notes "$(printf 'Hotfix of prod/v%s: %s\n\n%s\n' "$FROM" "$NOTE" "$TRAILER")"
+          gh workflow run release.yml --ref "$RC" -f tag="$RC"
+          {
+            echo "### $RC released from $RB"
+            echo "$NOTE"
+            echo "1. Test staging when the Release and Deploy runs finish."
+            echo "2. **Promote to prod** (leave rc empty) creates prod/v$NEXT from this rc."
+            echo "3. Staging now runs the hotfix: release a new rc from main to test main again."
+            [ -z "$REASON" ] || echo "4. The fix is not on main: bring it there, or the bug returns in the next release."
+          } >> "$GITHUB_STEP_SUMMARY"
