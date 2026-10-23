@@ -31,7 +31,7 @@ export async function loadSettings({ env = process.env, client = new SSMClient({
     }
     NextToken = page.NextToken;
   } while (NextToken);
-  const missing = missingKeys(requiredKeys(readFileSync(new URL('./.env.example', import.meta.url), 'utf8')), env);
+  const missing = missingKeys(requiredKeys(readFileSync(new URL('../../.env.example', import.meta.url), 'utf8')), env);
   if (missing.length) throw new Error(`No value under ${path} for: ${missing.join(', ')}`);
   return { loaded };
 }

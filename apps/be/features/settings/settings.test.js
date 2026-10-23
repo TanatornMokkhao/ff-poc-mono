@@ -18,7 +18,7 @@ test('without SSM_PATH nothing is loaded or checked', async () => {
 
 test('loads every page under the path into env', async () => {
   const env = { SSM_PATH: '/x/staging/be/' };
-  const names = requiredKeys((await import('node:fs')).readFileSync(new URL('./.env.example', import.meta.url), 'utf8'));
+  const names = requiredKeys((await import('node:fs')).readFileSync(new URL('../../.env.example', import.meta.url), 'utf8'));
   const params = names.map((n) => ({ Name: `/x/staging/be/${n}`, Value: `v-${n}` }));
   const pages = [{ Parameters: params.slice(0, 4), NextToken: 't' }, { Parameters: params.slice(4) }];
   assert.deepEqual(await loadSettings({ env, client: fakeClient(pages) }), { loaded: names.length });
