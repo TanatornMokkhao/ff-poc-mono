@@ -17,7 +17,8 @@ const BREAKING = [
   [/\bRENAME\b/i, 'renames something'],
   [/\bALTER\s+COLUMN\s+\S+\s+(SET\s+DATA\s+)?TYPE\b/i, 'changes a column type'],
   [/\bSET\s+NOT\s+NULL\b/i, 'makes a column NOT NULL (old code may insert without it)'],
-  [/\bADD\s+COLUMN\b(?:(?!;)[\s\S])*?\bNOT\s+NULL\b(?:(?!;|\bDEFAULT\b)[\s\S])*;/i, 'adds a NOT NULL column without a DEFAULT'],
+  // Within one statement: ADD COLUMN, no DEFAULT anywhere in it, and NOT NULL.
+  [/\bADD\s+COLUMN\b(?![^;]*\bDEFAULT\b)[^;]*\bNOT\s+NULL\b/i, 'adds a NOT NULL column without a DEFAULT'],
   [/\bTRUNCATE\b/i, 'empties a table'],
   [/\bDELETE\s+FROM\b/i, 'deletes rows (data changes go in a command, not a migration)'],
 ];
@@ -38,7 +39,9 @@ export function checkFile(name, sql) {
   return problems;
 }
 
-export function checkAll(dir, baseRef) {
+// gitDir: the folder whose ./migrations git reads at baseRef (the app folder; tests pass a repo of
+// their own).
+export function checkAll(dir, baseRef, gitDir = appDir) {
   const names = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
   const problems = names.flatMap((f) => checkFile(f, readFileSync(new URL(f, dir), 'utf8')));
   const numbers = names.map((f) => f.slice(0, 4));
@@ -46,13 +49,13 @@ export function checkAll(dir, baseRef) {
   if (baseRef) {
     let released = [];
     try {
-      released = execFileSync('git', ['ls-tree', '--name-only', `${baseRef}:./migrations`], { cwd: appDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean);
+      released = execFileSync('git', ['ls-tree', '--name-only', `${baseRef}:./migrations`], { cwd: gitDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').filter(Boolean);
     } catch {
       released = [];
     }
     for (const f of released) {
       if (!names.includes(f)) { problems.push(`${f} was released in ${baseRef} and is gone; released migrations never change`); continue; }
-      const then = execFileSync('git', ['show', `${baseRef}:./migrations/${f}`], { cwd: appDir, encoding: 'utf8' });
+      const then = execFileSync('git', ['show', `${baseRef}:./migrations/${f}`], { cwd: gitDir, encoding: 'utf8' });
       if (then !== readFileSync(new URL(f, dir), 'utf8')) problems.push(`${f} was released in ${baseRef} and has changed; add a new migration instead`);
     }
     const last = released.sort().at(-1);
