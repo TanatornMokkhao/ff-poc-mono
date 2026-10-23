@@ -1,0 +1,8 @@
+name: Bad
+on: workflow_dispatch
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release create "prod/v9.9.9" --target "${{ github.sha }}"
+      - run: echo ${{ steps.nope.outputs.x }}
