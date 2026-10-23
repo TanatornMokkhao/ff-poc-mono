@@ -171,9 +171,37 @@ jobs:
       - run: npx vitest run
       - run: npm run build
 
-  # The required check: passes when every app job that had to run passed, and skips count as pass.
+  # Repo-wide rules, on new code only (what this change adds or modifies). Each rule is a script in
+  # scripts/checks/; checks.test.sh proves the home-made ones fail on the mistake they exist for.
+  # docs/lessons.md says which incident each rule comes from.
+  rules:
+    runs-on: ubuntu-latest
+    env:
+      BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      ACTIONLINT_VERSION: 1.7.7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install actionlint
+        run: |
+          curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: The checks catch what they exist for
+        run: bash scripts/checks/checks.test.sh
+      - name: Executable files keep their mode
+        run: bash scripts/checks/executable-files.sh
+      - name: Refs are pushed with the deploy key
+        run: bash scripts/checks/no-token-refs.sh
+      - name: shellcheck
+        run: bash scripts/checks/shell-scripts.sh
+      - name: actionlint
+        run: bash scripts/checks/workflows.sh
+
+  # The required check: passes when every job that had to run passed, and skips count as pass.
   ci:
-    needs: [changes, be, migrations, fe]
+    needs: [changes, be, migrations, fe, rules]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
