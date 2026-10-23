@@ -1,16 +1,16 @@
 name: Release
 
 # A person creates a release in this repo (Releases, New release):
-#   staging/vX.Y.Z-rc.N  a test round of X.Y.Z, on a commit of main (or of a release/* branch, which
-#                        Start hotfix makes). Builds the be image and the web for staging and prod
+#   staging/vX.Y.Z-rc.N  a test round of X.Y.Z, on a commit of main (or of a release/* branch cut
+#                        from a prod tag, for a hotfix). Builds the be image and the web for staging and prod
 #                        once, records the version in deploy/staging/versions.yaml and deploys it.
 #                        The apps are built only after a person approves app-test.
 #   prod/vX.Y.Z          made by Promote on the commit of a tested rc: reuses that rc's image and
 #                        web build, records deploy/prod/versions.yaml, and Deploy waits for the
 #                        production approval. The apps wait for app-store.
 # A later rc on the same commit reuses whatever that commit already built.
-# Promote and Start hotfix start this through workflow_dispatch, because a tag they create with
-# GITHUB_TOKEN starts no workflow by itself.
+# Promote starts this through workflow_dispatch, because a tag it creates with GITHUB_TOKEN starts
+# no workflow by itself.
 on:
   push:
     tags: ['staging/v*', 'prod/v*']
@@ -69,10 +69,21 @@ jobs:
             [ -n "$PREV" ] || { echo "::error::No staging/v$VERSION-rc.N on ${SHA::7}: this commit never went to staging. Use Promote."; exit 1; }
           else
             PREV=$(git tag --points-at "$SHA" | grep -E '^staging/v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' | grep -vx "$TAG" | sort -V | tail -1 || true)
-            # An rc is cut from main, or from a release branch that Start hotfix made.
+            # An rc is cut from main, or from a release/* branch (a hotfix cut from a prod tag).
             if ! git merge-base --is-ancestor "$SHA" origin/main && ! git branch -r --contains "$SHA" | grep -q 'origin/release/'; then
               echo "::error::$TAG is on ${SHA::7}, which is on neither main nor a release/* branch."; exit 1
             fi
+            # One version number names one line of code: every earlier rc of it must come before this
+            # commit. Otherwise main and a hotfix (or two hotfixes) would share the number.
+            BASE="${VERSION%-rc.*}"
+            git rev-parse -q --verify "refs/tags/prod/v$BASE" >/dev/null && { echo "::error::$BASE is already released to prod; use the next version."; exit 1; }
+            for t in $(git tag --list "staging/v$BASE-rc.*" | grep -vx "$TAG"); do
+              if ! git merge-base --is-ancestor "$t" "$SHA"; then
+                LINE="${BASE%.*}"
+                HIGH=$(git tag --list "prod/v$LINE.*" "staging/v$LINE.*" | sed -E 's#^(prod|staging)/v##; s/-rc\.[0-9]+$//' | sort -V | tail -1)
+                echo "::error::$t is on another line of code (not before ${SHA::7}), so $BASE is taken. Use $LINE.$(( ${HIGH##*.} + 1 ))."; exit 1
+              fi
+            done
           fi
           has() { [ -n "$PREV" ] && gh release view "$PREV" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx "$1"; }
           if [ "$STAGE" = prod ]; then

@@ -1,7 +1,7 @@
 name: Android
 
+# Called by Release only (after the app-test or app-store approval).
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       ref:
@@ -17,9 +17,6 @@ on:
         description: staging or prod; bakes that stage's config.json (from the caller's config-<stage> artifact)
         type: string
         default: ''
-      upload_play:
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -132,26 +129,3 @@ jobs:
           path: |
             apps/fe/android/app/build/outputs/apk/release/*.apk
             apps/fe/android/app/build/outputs/bundle/release/*.aab
-
-  # Off until a Play Console account exists: set repo variable PLAY_UPLOAD_ENABLED=true
-  # and secret PLAY_SERVICE_ACCOUNT_JSON. The first release must be uploaded by hand.
-  play-internal:
-    needs: build
-    if: ${{ inputs.upload_play && vars.PLAY_UPLOAD_ENABLED == 'true' }}
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/fe
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: android-release-${{ inputs.version_name }}-prod
-          path: release
-
-      - uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.tanatorn.ioniccipoc
-          releaseFiles: release/bundle/release/*.aab
-          track: internal
-          status: completed
