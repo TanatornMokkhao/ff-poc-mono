@@ -7,6 +7,9 @@
     </ion-header>
 
     <ion-content :fullscreen="true" class="ion-padding">
+      <ion-note color="warning">
+        <p><strong>BETA:</strong> new checkout, not ready for prod yet.</p>
+      </ion-note>
       <ion-note v-if="config.flags.welcomeBanner" color="success">
         <p><strong>New:</strong> this banner is turned on by the FEATURE_WELCOME_BANNER setting of this stage.</p>
       </ion-note>
