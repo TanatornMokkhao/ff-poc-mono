@@ -1,7 +1,7 @@
 name: iOS
 
+# Called by Release only (after the app-test or app-store approval).
 on:
-  workflow_dispatch:
   workflow_call:
     inputs:
       ref:

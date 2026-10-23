@@ -34,9 +34,17 @@ Sites: [staging](https://d2opbrm30xq1x7.cloudfront.net/) · [prod](https://dwgvw
 3. A fix during testing: merge it, then release `staging/v1.0.0-rc.2`.
 4. Staging passes: Actions → **Promote to prod** (leave `rc` empty, or give an older rc number). It checks every commit is on `main`, creates `prod/v1.0.0` on the rc's commit and reuses its builds; approve `production` (and `app-store` for the apps).
 5. Rollback: Actions → **Rollback production** (empty version = the previous prod release), then approve `production`. be and fe go back together. It refuses a version older than any contract migration's `removes-use-from`.
-6. Hotfix while `main` holds work that cannot ship yet: fix on `main` first, then Actions → **Start hotfix** with that commit. It cherry-picks it onto `release/<next patch>` cut from what prod runs, tests both apps there, and releases its rc. Test staging, then Promote. Nothing to merge back. On a conflict it stops and says how to pick by hand (then run again with `picked`).
+6. Hotfix while `main` holds work that cannot ship yet: fix on `main` first (a normal pull request), then cut a branch from what prod runs and cherry-pick the fix onto it:
+   ```bash
+   git fetch --tags origin
+   git switch -c release/1.0.1 prod/v1.0.0
+   git cherry-pick -x <the fix commit on main>
+   git push -u origin release/1.0.1        # CI runs on release/*
+   ```
+   Then release `staging/v1.0.1-rc.1` with target `release/1.0.1`, test staging, and Promote. Nothing to merge back: the fix is already on `main`.
+   Release refuses a version that another line of code already used (and names the next free one). Promote refuses a commit that is neither on `main` nor a `-x` cherry-pick of a `main` commit; for a fix `main` truly cannot take, put a line `Hotfix-not-on-main: <why>` in the rc's release notes.
 
-Only these are done by hand: an rc tag, Promote, Start hotfix, Rollback, and the approvals. No tag is ever made anywhere else.
+Only these are done by hand: an rc release, Promote, Rollback, and the approvals. No tag is ever made anywhere else.
 
 ## Compared with the hub layout
 
@@ -45,7 +53,7 @@ Only these are done by hand: an rc tag, Promote, Start hotfix, Rollback, and the
 | A change to the API and the web | two pull requests, merged in step | one pull request |
 | After a merge | Notify hub, then Bump submodule pins | nothing |
 | Release tags | in the hub, copied to be and fe | here only |
-| Hotfix of be and fe together | two Start hotfix runs | one |
+| Hotfix | Start hotfix button (pins move across repos) | a branch, a cherry-pick and an rc, by hand |
 | "Is this on main?" | GitHub compare API across repos | `git merge-base` here |
 | CI | each repo runs everything it has | one workflow, jobs filtered by path, one aggregate check |
 | Roll back only be or only fe | possible | no: one version |
