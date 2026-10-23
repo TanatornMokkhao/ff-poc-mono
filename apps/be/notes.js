@@ -38,3 +38,8 @@ export async function notes(req, send) {
     return send(err.message === 'body is not JSON' ? 400 : 500, { error: err.message });
   }
 }
+
+export async function countNotes() {
+  const { rows } = db().query("SELECT count(*) AS n FROM notes");
+  return rows[0].n;
+}
