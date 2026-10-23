@@ -6,7 +6,8 @@ cd "$(git rev-parse --show-toplevel)"
 bad=0
 while IFS= read -r f; do
   case "$f" in
-    */gradlew | scripts/*.sh | scripts/*/*.sh) ;;
+    # In a case pattern * also matches "/", so scripts/*.sh covers scripts/checks/ too.
+    */gradlew | scripts/*.sh) ;;
     *) continue ;;
   esac
   mode=$(git ls-files -s -- "$f" | awk '{print $1}')

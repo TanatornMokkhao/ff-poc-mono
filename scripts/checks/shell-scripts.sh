@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck on every shell script this change adds or modifies. A grep with no match inside
+# Runs shellcheck on every shell script this change adds or modifies. A grep with no match inside
 # $(...) under pipefail once stopped deploy.sh with no message; shellcheck finds that family of
 # mistakes (unquoted values, ignored exit codes, unset variables) before it runs.
 set -euo pipefail
