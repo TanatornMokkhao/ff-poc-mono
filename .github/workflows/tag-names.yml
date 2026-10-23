@@ -1,0 +1,30 @@
+name: Tag names
+
+# Release tags must be staging/vX.Y.Z-rc.N or prod/vX.Y.Z; anything else starts no release, which
+# looks like nothing happened (staging/1.1.0-rc.1 was once typed). A ruleset cannot check tag names
+# on this plan, so this removes a wrongly named tag (and its release) at once and fails, which
+# notifies the person who pushed it.
+on:
+  push:
+    tags: ['**']
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: The tag is a release tag, or it goes
+        run: |
+          if [[ "$TAG" =~ ^(staging/v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+|prod/v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "$TAG is a release tag."; exit 0
+          fi
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG" >/dev/null
+          echo "::error::Removed tag '$TAG': release tags are staging/vX.Y.Z-rc.N or prod/vX.Y.Z (note the v). Create it again with the right name."
+          exit 1
