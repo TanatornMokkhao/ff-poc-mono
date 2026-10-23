@@ -5,7 +5,7 @@ first: a state that cannot exist (a ruleset), a check that fails CI, one canonic
 at run time, and only last a written instruction. Each check here has a case in
 `scripts/checks/checks.test.sh` that shows it failing on the mistake, or is a tool run on new code.
 
-The rules check new code only: what a change adds or modifies. Old code is not rechecked, so a rule
+The rules check new code only: what a change adds or modifies (the tools look at each changed file whole). Old code is not rechecked, so a rule
 can be switched on without fixing the whole repo first.
 
 | Date | What broke | Rule | Kind | Where | Proof |
