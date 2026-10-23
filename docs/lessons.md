@@ -26,6 +26,12 @@ can be switched on without fixing the whole repo first.
 | 2026-10-23 | be is JavaScript: a missed `await` or a wrong field name reached runtime with nothing in between | Type check of be (`checkJs`, strict null checks) | Tool on all of be | `apps/be/jsconfig.json`, `be` job | A missing `await` on `pool.query()` fails with TS2339 |
 | 2026-10-23 | Nothing made a fix carry a test, so the same bug could come back unnoticed | A pull request titled `fix` that changes app code must change a test | CI check | `scripts/checks/fix-has-test.sh` | `checks.test.sh` (3 cases) |
 | 2026-10-23 | New code could merge with no test running it | At least 80% of the executable lines a change adds must run under the app's tests | Tool on new code | `scripts/checks/new-code-coverage.mjs` | An untested function: 42% and the lines named; with its test: 100% |
-| 2026-10-23 | A test that runs code without checking its result passes coverage | Mutation score of the changed be files must be at least 70% | Tool on new code | `scripts/checks/mutation.sh`, `apps/be/stryker.config.json` | `settings.js`: 86% (43 killed, 7 survived) |
+| 2026-10-23 | A test that runs code without checking its result passes coverage | Mutation score of the be lines a change adds must be at least 70% (Stryker on file:start-end ranges) | Tool on new code | `scripts/checks/mutation.sh`, `apps/be/stryker.config.json` | `settings.js`: 86% (43 killed, 7 survived) |
 | 2026-10-23 | Path filters decided which app's jobs ran; a shared file would not have run both | Nx decides the affected apps from the project graph | CI structure | `nx.json`, `apps/*/project.json`, `changes` job | be-only change: be; fe-only: fe; README-only: none |
 | 2026-10-23 | Every check looked only at a change, so a dependency or runner update could break a part nobody touched | Nightly run of every job on every file | Scheduled | `ci.yml` `schedule` | First nightly run |
+
+## Known weak spots (found by the gates, not fixed yet)
+
+| Found | What | By | Next step |
+| --- | --- | --- | --- |
+| 2026-10-23 | `apps/be/scripts/check-migrations.mjs`: mutation score 32.64% (63 killed, 130 survived). Its unit tests miss most of `checkAll` (the comparison with the release tag) and many of the rule regexes; only the CI `migrations` job exercises them | Mutation testing over the whole file (first run of the gate) | Unit tests for `checkAll` in a throwaway repo; the gate checks only added lines, so this does not block other changes |
