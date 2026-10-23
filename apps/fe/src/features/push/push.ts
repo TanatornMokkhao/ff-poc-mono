@@ -4,7 +4,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 export interface Message { title: string; body: string }
 
-// Push registration and the messages received while the app is open. Push works only in the
+// Push registration, and the messages received while the app is open. Push works only in the
 // native app; in a browser the status says so and nothing is registered.
 export function usePush(push = PushNotifications, isNative = Capacitor.isNativePlatform()) {
   const status = ref(isNative ? 'Not registered' : 'Browser');
