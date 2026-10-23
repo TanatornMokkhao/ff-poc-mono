@@ -77,12 +77,14 @@ jobs:
           set -euo pipefail
           DEPLOYED="$GITHUB_WORKSPACE/deploy/$STAGE/versions.yaml"
           v() { sed -n "s/^$1:[[:space:]]*\([^[:space:]#]*\)[[:space:]]*#*[[:space:]]*\(.*\)/\1 \2/p" "$DEPLOYED"; }
-          VERSION=$(set -- $(v version); [ "${1:-none}" = none ] && echo none || echo "\`$1\`${2:+ ($2)}")
-          MOBILE=$(set -- $(v mobile); echo "${1:-none}")
+          read -r V SHA_SHORT <<<"$(v version)" || true
+          if [ "${V:-none}" = none ]; then VERSION=none; else VERSION="\`$V\`${SHA_SHORT:+ ($SHA_SHORT)}"; fi
+          read -r MOBILE _ <<<"$(v mobile)" || true
+          MOBILE=${MOBILE:-none}
           ROW="| $STAGE | $VERSION | \`$MOBILE\` | $(date -u '+%Y-%m-%d %H:%M UTC') ([run]($RUN_URL)) |"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for i in 1 2 3 4 5; do
+          for _ in 1 2 3 4 5; do
             rm -rf status && git fetch -q origin main && git worktree add -q -f --detach status origin/main
             cd status
             row() { if [ "$1" = "$STAGE" ]; then echo "$ROW"; else grep -E "^\| $1 \|" README.md || echo "| $1 | - | - | - |"; fi; }

@@ -72,4 +72,4 @@ jobs:
           git config user.name "ff-poc release bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -qam "ci: Promote and Rollback menus follow the release tags"
-          for i in 1 2 3; do git push -q origin HEAD:main && break; git pull -q --rebase origin main; done
+          for _ in 1 2 3; do git push -q origin HEAD:main && break; git pull -q --rebase origin main; done

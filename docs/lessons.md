@@ -28,7 +28,7 @@ can be switched on without fixing the whole repo first.
 | 2026-10-23 | New code could merge with no test running it | At least 80% of the executable lines a change adds must run under the app's tests | Tool on new code | `scripts/checks/new-code-coverage.mjs` | An untested function: 42% and the lines named; with its test: 100% |
 | 2026-10-23 | A test that runs code without checking its result passes coverage | Mutation score of the be lines a change adds must be at least 70% (Stryker on file:start-end ranges) | Tool on new code | `scripts/checks/mutation.sh`, `apps/be/stryker.config.json` | `settings.js`: 86% (43 killed, 7 survived) |
 | 2026-10-23 | Path filters decided which app's jobs ran; a shared file would not have run both | Nx decides the affected apps from the project graph | CI structure | `nx.json`, `apps/*/project.json`, `changes` job | be-only change: be; fe-only: fe; README-only: none |
-| 2026-10-23 | Every check looked only at a change, so a dependency or runner update could break a part nobody touched | Nightly run of every job on every file | Scheduled | `ci.yml` `schedule` | First nightly run |
+| 2026-10-23 | Every check looked only at a change, so a dependency or runner update could break a part nobody touched | Nightly run of every job on every file | Scheduled | `ci.yml` `schedule` | First run (by hand) found 10 old problems no change had touched: `scripts/deploy.sh` was 100644, 7 shellcheck findings in deploy, deploy-stage, menus and promote workflows, and fe eslint could not parse top-level await in `scripts/send-test-push.mjs`. All fixed in the same pull request |
 
 ## Known weak spots (found by the gates, not fixed yet)
 

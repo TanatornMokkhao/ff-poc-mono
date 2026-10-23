@@ -76,6 +76,8 @@ jobs:
       - name: Every change is on main
         run: |
           set -euo pipefail
+          # FROM and SHA come from GITHUB_ENV (the step before), which shellcheck cannot see.
+          # shellcheck disable=SC2153
           LAST=$(git tag --list 'prod/v*' --sort=-v:refname | head -1)
           [ -n "$LAST" ] || LAST=$(git rev-list --max-parents=0 "$SHA" | tail -1)
           BYPASS=""
