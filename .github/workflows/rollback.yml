@@ -33,9 +33,11 @@ jobs:
       WANT: ${{ inputs.version }}
       REASON: ${{ inputs.reason }}
     steps:
+      # The deploy key is the only actor the main ruleset lets push to main; that push starts Deploy.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
 
       - name: Pick the version
         run: |
@@ -87,7 +89,6 @@ jobs:
           cat deploy/prod/versions.yaml
           git commit -qam "prod: rollback $CUR -> $V ($REASON)"
           git push -q origin HEAD:main
-          gh workflow run deploy.yml --ref main -f stage=prod
           {
             echo "### Production rollback: $CUR → $V"
             echo "Reason: $REASON"

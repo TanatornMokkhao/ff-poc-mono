@@ -1,7 +1,7 @@
 name: Deploy
 
-# A change to deploy/<stage>/ or scripts/ on main deploys that stage. Release and Rollback start
-# this by hand (workflow_dispatch), since their pushes are made with GITHUB_TOKEN.
+# A change to deploy/<stage>/ or scripts/ on main deploys that stage (Release and Rollback write
+# deploy/ through the deploy key, so their pushes start this too).
 # staging deploys at once; prod waits for an approval on the production environment.
 on:
   push:
