@@ -1,0 +1,7 @@
+{
+  "name": "fe-config",
+  "$schema": "../../../../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "apps/fe/src/features/config",
+  "tags": ["fe", "feature"]
+}

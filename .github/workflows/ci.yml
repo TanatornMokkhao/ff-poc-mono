@@ -86,11 +86,11 @@ jobs:
         run: bash ../../scripts/checks/lint-app.sh be
       - name: Type check (missed await, wrong field, possible null)
         run: npx tsc -p jsconfig.json
-      # Only the tests of the be projects this change affects (scripts/checks/be-tests.sh); a feature
+      # Only the tests of the be projects this change affects (scripts/checks/app-tests.sh); a feature
       # change runs that feature's tests and the routing tests, not the other features'.
       - name: Tests, with coverage
         run: |
-          mapfile -t files < <(bash ../../scripts/checks/be-tests.sh)
+          mapfile -t files < <(bash ../../scripts/checks/app-tests.sh be)
           echo "Test files (${#files[@]}): ${files[*]}"
           if [ ${#files[@]} -eq 0 ]; then echo "No be tests affected."; exit 0; fi
           node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout \
@@ -219,12 +219,22 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/fe/package-lock.json
+          cache-dependency-path: |
+            apps/fe/package-lock.json
+            package-lock.json
       - run: npm ci
+      - name: Repo tooling (Nx, for test selection)
+        working-directory: .
+        run: npm ci
       - name: eslint on changed files
         run: bash ../../scripts/checks/lint-app.sh fe
+      # Only the tests of the fe projects this change affects (scripts/checks/app-tests.sh).
       - name: Tests, with coverage
-        run: npx vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage
+        run: |
+          mapfile -t files < <(bash ../../scripts/checks/app-tests.sh fe)
+          echo "Test files (${#files[@]}): ${files[*]}"
+          if [ ${#files[@]} -eq 0 ]; then echo "No fe tests affected."; exit 0; fi
+          npx vitest run --coverage --coverage.reporter=lcov --coverage.reportsDirectory=coverage "${files[@]}"
       - name: New-code coverage
         run: node ../../scripts/checks/new-code-coverage.mjs fe coverage/lcov.info
       - run: npm run build

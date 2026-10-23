@@ -3,5 +3,6 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
   "sourceRoot": "apps/fe",
-  "tags": ["app"]
+  "tags": ["app"],
+  "implicitDependencies": ["fe-config", "fe-push", "fe-release-info"]
 }
