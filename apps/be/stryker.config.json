@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "command",
+  "commandRunner": { "command": "node --test" },
+  "coverageAnalysis": "off",
+  "reporters": ["clear-text", "progress"],
+  "thresholds": { "high": 90, "low": 70, "break": 70 },
+  "tempDirName": ".stryker-tmp",
+  "concurrency": 4,
+  "timeoutMS": 20000
+}
