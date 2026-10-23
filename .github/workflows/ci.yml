@@ -15,6 +15,10 @@ on:
     - cron: '41 19 * * *'
   workflow_dispatch:
 
+# Cypress (e2e) never runs in CI; skipping its binary keeps npm ci from failing on its download.
+env:
+  CYPRESS_INSTALL_BINARY: "0"
+
 permissions:
   contents: read
 

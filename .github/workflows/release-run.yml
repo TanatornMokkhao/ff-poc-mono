@@ -21,6 +21,8 @@ on:
 
 env:
   TAG: ${{ inputs.tag }}
+  # Cypress (e2e) never runs here; skipping its binary keeps npm ci from failing on its download.
+  CYPRESS_INSTALL_BINARY: "0"
 
 jobs:
   meta:
