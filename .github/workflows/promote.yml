@@ -1,14 +1,18 @@
 name: Promote to prod
 
-# Releases to prod exactly what an rc tested: pick it in the list (every rc whose version is not in
-# prod yet, newest first). Pushes prod/vX.Y.Z on that rc's commit, which starts Release; it reuses
-# the rc's builds, and Deploy waits for the production approval.
+# Pick what goes to prod (the list is every candidate, newest first):
+#   X.Y.Z-rc.N       an rc that staging tested. prod/vX.Y.Z goes on the rc's commit and reuses its
+#                    builds.
+#   release/X.Y.Z    a hotfix straight to prod: the head of that branch, cut from a prod tag with the
+#                    fix cherry-picked from main. It is built for prod only and never touches staging,
+#                    so the first place that build runs is prod. CI must have passed on it.
+# Pushes prod/vX.Y.Z, which starts Release; Deploy waits for the production approval.
 on:
   workflow_dispatch:
     inputs:
-      # The list is rewritten by Update menus after every release; do not edit it by hand.
+      # The list is rewritten by Update menus after every release and every push to release/*.
       rc:
-        description: rc to promote (newest first; staging runs the first one unless a newer rc failed)
+        description: What to promote (an rc staging tested, or release/X.Y.Z straight to prod)
         type: choice
         options:
           # rc-menu:start
@@ -33,7 +37,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      RC_INPUT: ${{ inputs.rc }}
+      PICK: ${{ inputs.rc }}
       NOTES: ${{ inputs.notes }}
     steps:
       # The tag is pushed with the deploy key: GITHUB_TOKEN may not create a ref on a commit that
@@ -43,19 +47,29 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ secrets.DEPLOY_KEY }}
 
-      - name: Pick the rc
+      - name: Pick what goes to prod
         run: |
           set -euo pipefail
-          [[ "$RC_INPUT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.[0-9]+$ ]] || { echo "::error::'$RC_INPUT' is not an rc."; exit 1; }
-          V="${BASH_REMATCH[1]}"; RC="staging/v$RC_INPUT"
-          git rev-parse -q --verify "refs/tags/$RC" >/dev/null || { echo "::error::There is no $RC."; exit 1; }
+          if [[ "$PICK" =~ ^release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            V="${BASH_REMATCH[1]}"; FROM="$PICK (hotfix straight to prod)"
+            SHA=$(git rev-parse -q --verify "origin/$PICK") || { echo "::error::There is no branch $PICK."; exit 1; }
+            CI=$(gh api "repos/$GH_REPO/commits/$SHA/check-runs" --jq '[.check_runs[] | select(.name == "ci") | .conclusion] | first // "none"')
+            [ "$CI" = success ] || { echo "::error::CI on $PICK (${SHA::7}) is '$CI', not success. Wait for it, or fix the branch."; exit 1; }
+            LAST=$(git tag --list 'prod/v*' --sort=-v:refname | head -1)
+            git merge-base --is-ancestor "$LAST" "$SHA" || echo "::warning::$PICK was not cut from the newest prod release $LAST."
+          elif [[ "$PICK" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.[0-9]+$ ]]; then
+            V="${BASH_REMATCH[1]}"; FROM="staging/v$PICK"
+            git rev-parse -q --verify "refs/tags/$FROM" >/dev/null || { echo "::error::There is no $FROM."; exit 1; }
+            SHA=$(git rev-parse "$FROM^{commit}")
+            CUR=$(sed -n 's/^version:[[:space:]]*\([^[:space:]#]*\).*/\1/p' deploy/staging/versions.yaml)
+            [ "$CUR" = "$PICK" ] || echo "::warning::Promoting $FROM while staging runs $CUR."
+          else
+            echo "::error::'$PICK' is neither an rc nor release/X.Y.Z (the list may be empty: run Update menus)."; exit 1
+          fi
           if git rev-parse -q --verify "refs/tags/prod/v$V" >/dev/null; then
             echo "::error::prod/v$V already exists. Release tags are permanent: release the next version."; exit 1
           fi
-          echo "V=$V" >> "$GITHUB_ENV"; echo "RC=$RC" >> "$GITHUB_ENV"
-          echo "SHA=$(git rev-parse "$RC^{commit}")" >> "$GITHUB_ENV"
-          CUR=$(sed -n 's/^version:[[:space:]]*\([^[:space:]#]*\).*/\1/p' deploy/staging/versions.yaml)
-          [ "$CUR" = "$RC_INPUT" ] || echo "::warning::Promoting $RC while staging runs $CUR."
+          { echo "V=$V"; echo "FROM=$FROM"; echo "SHA=$SHA"; } >> "$GITHUB_ENV"
 
       # Every commit prod would gain must already be on main, directly or as a cherry-pick of a main
       # commit; otherwise the next release from main would lose it.
@@ -64,7 +78,8 @@ jobs:
           set -euo pipefail
           LAST=$(git tag --list 'prod/v*' --sort=-v:refname | head -1)
           [ -n "$LAST" ] || LAST=$(git rev-list --max-parents=0 "$SHA" | tail -1)
-          BYPASS=$(gh release view "$RC" --json body --jq .body | sed -n 's/^Hotfix-not-on-main: //p')
+          BYPASS=""
+          [[ "$FROM" == staging/* ]] && BYPASS=$(gh release view "$FROM" --json body --jq .body | sed -n 's/^Hotfix-not-on-main: //p')
           missing=""
           for c in $(git rev-list "$LAST..$SHA"); do
             git merge-base --is-ancestor "$c" origin/main && continue
@@ -78,7 +93,7 @@ jobs:
             if [ -n "$BYPASS" ]; then
               echo "::warning::Not on main: $missing(allowed by the hotfix: $BYPASS). Bring them to main or the next release loses them."
             else
-              echo "::error::$RC would ship commits that are not on main: $missing. Merge them into main first."; exit 1
+              echo "::error::$FROM would ship commits that are not on main: $missing. Merge them into main first (and cherry-pick with -x)."; exit 1
             fi
           fi
           echo "Every commit since ${LAST} is on main."
@@ -86,13 +101,17 @@ jobs:
       - name: Create prod/v${{ env.V }} and release it
         run: |
           set -euo pipefail
-          BODY=$(printf 'Promoted from %s (%s).\n\n%s\n' "$RC" "${SHA::7}" "$NOTES")
+          BODY=$(printf 'Promoted from %s (%s).\n\n%s\n' "$FROM" "${SHA::7}" "$NOTES")
           git tag "prod/v$V" "$SHA"
           git push -q origin "prod/v$V"
           # Release starts from the push and may make the GitHub release first; either way it gets the notes.
           if gh release view "prod/v$V" >/dev/null 2>&1; then gh release edit "prod/v$V" --notes "$BODY" --latest
           else gh release create "prod/v$V" --verify-tag --title "prod/v$V" --notes "$BODY" --latest; fi
           {
-            echo "### prod/v$V created from $RC"
-            echo "Release reuses the $RC builds; approve **production** in Deploy and **app-store** in Release."
+            echo "### prod/v$V created from $FROM"
+            if [[ "$FROM" == release/* ]]; then
+              echo "Release builds it for prod now (it never ran on staging); approve **production** in Deploy and **app-store** in Release."
+            else
+              echo "Release reuses the $FROM builds; approve **production** in Deploy and **app-store** in Release."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
