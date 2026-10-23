@@ -25,10 +25,12 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The deploy key pushes the README row; GITHUB_TOKEN cannot get past the main ruleset.
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
 
       # Two roles through GitHub OIDC, no AWS keys stored. The runtime role is what the server runs
       # as (its credentials go to the container); the deploy role, assumed last, is what this job
