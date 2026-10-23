@@ -101,7 +101,12 @@ jobs:
       - name: Create prod/v${{ env.V }} and release it
         run: |
           set -euo pipefail
-          BODY=$(printf 'Promoted from %s (%s).\n\n%s\n' "$FROM" "${SHA::7}" "$NOTES")
+          LAST=$(git tag --list 'prod/v*' --sort=-v:refname | head -1)
+          CHANGES=$(bash scripts/release-notes.sh "$LAST" "$SHA")
+          COMPARE=""
+          [ -z "$LAST" ] || COMPARE="Full diff: https://github.com/$GH_REPO/compare/$LAST...prod/v$V"
+          BODY=$(printf 'Promoted from %s (%s).\n\n%s\n\n## Changes since %s\n\n%s\n\n%s\n' \
+            "$FROM" "${SHA::7}" "$NOTES" "${LAST:-the first commit}" "$CHANGES" "$COMPARE")
           git tag "prod/v$V" "$SHA"
           git push -q origin "prod/v$V"
           # Release starts from the push and may make the GitHub release first; either way it gets the notes.
