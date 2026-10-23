@@ -16,7 +16,7 @@ on:
         type: choice
         options:
           # rc-menu:start
-          - '1.2.0-rc.1'
+          - 'none'
           # rc-menu:end
       notes:
         description: Release notes (optional)
