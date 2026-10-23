@@ -30,3 +30,12 @@ test('a key missing from the store stops the server', async () => {
   const env = { SSM_PATH: '/x/staging/be/' };
   await assert.rejects(loadSettings({ env, client: fakeClient([{ Parameters: [{ Name: '/x/staging/be/APP_ENV', Value: 'staging' }] }]) }), /No value under \/x\/staging\/be\/ for: .*DB_PASSWORD/);
 });
+
+test('a parameter without a name is skipped', async () => {
+  /** @type {Record<string, string | undefined>} */
+  const env = { SSM_PATH: '/x/staging/be/' };
+  const names = requiredKeys((await import('node:fs')).readFileSync(new URL('../../.env.example', import.meta.url), 'utf8'));
+  const params = [{ Value: 'orphan' }, ...names.map((n) => ({ Name: `/x/staging/be/${n}`, Value: 'v' }))];
+  assert.deepEqual(await loadSettings({ env, client: fakeClient([{ Parameters: params }]) }), { loaded: names.length });
+  assert.equal(Object.values(env).includes('orphan'), false);
+});
