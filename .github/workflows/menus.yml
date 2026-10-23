@@ -1,0 +1,75 @@
+name: Update menus
+
+# After every release and every push to a release/* branch, rewrites the dropdowns of Promote to
+# prod (every release/X.Y.Z branch and every rc whose version is not in prod yet and whose builds
+# exist, newest first) and Rollback production (every prod version, newest first). A workflow file
+# can only be changed with a key that may push to main; this uses the deploy key.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  push:
+    branches: ['release/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: menus
+  cancel-in-progress: false
+
+jobs:
+  menus:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Rewrite the lists
+        run: |
+          set -euo pipefail
+          # Replaces the lines between "# <name>:start" and "# <name>:end" in a file with a list.
+          put() {
+            local file=$1 name=$2 list
+            list=$(mktemp)
+            for v in $3; do echo "          - '$v'"; done > "$list"
+            awk -v list="$list" -v s="# $name:start" -v e="# $name:end" '
+              index($0, s) { print; while ((getline l < list) > 0) print l; skip = 1; next }
+              index($0, e) { skip = 0 }
+              !skip { print }
+            ' "$file" > "$file.new" && mv "$file.new" "$file"
+          }
+          RCS=""
+          for b in $(git branch -r --list 'origin/release/*' | sed 's#.*origin/##' | sort -Vr); do
+            [[ "$b" =~ ^release/[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+            git rev-parse -q --verify "refs/tags/prod/v${b#release/}" >/dev/null && continue
+            RCS+="$b "
+          done
+          for t in $(git tag --list 'staging/v*' --sort=-v:refname); do
+            v=${t#staging/v}
+            git rev-parse -q --verify "refs/tags/prod/v${v%-rc.*}" >/dev/null && continue
+            gh release view "$t" --json assets --jq '.assets[].name' 2>/dev/null | grep -qx web-build-prod.zip || continue
+            RCS+="$v "
+          done
+          PRODS=$(git tag --list 'prod/v*' --sort=-v:refname | sed 's#^prod/v##' | tr '\n' ' ')
+          # A choice input needs at least one option.
+          put .github/workflows/promote.yml rc-menu "${RCS:-none}"
+          put .github/workflows/rollback.yml prod-menu "$PRODS"
+          echo "Promote: ${RCS:-none}"; echo "Rollback: previous $PRODS"
+          git diff --stat
+
+      - name: Commit
+        run: |
+          set -euo pipefail
+          git diff --quiet && { echo "Menus already current."; exit 0; }
+          git config user.name "ff-poc release bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "ci: Promote and Rollback menus follow the release tags"
+          for i in 1 2 3; do git push -q origin HEAD:main && break; git pull -q --rebase origin main; done

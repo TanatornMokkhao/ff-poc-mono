@@ -41,8 +41,9 @@ Sites: [staging](https://d2opbrm30xq1x7.cloudfront.net/) · [prod](https://dwgvw
    git cherry-pick -x <the fix commit on main>
    git push -u origin release/1.0.1        # CI runs on release/*
    ```
-   Then release `staging/v1.0.1-rc.1` with target `release/1.0.1`, test staging, and Promote. Nothing to merge back: the fix is already on `main`.
-   Release refuses a version that another line of code already used (and names the next free one). Promote refuses a commit that is neither on `main` nor a `-x` cherry-pick of a `main` commit; for a fix `main` truly cannot take, put a line `Hotfix-not-on-main: <why>` in the rc's release notes.
+   Then Actions → **Promote to prod** → pick `release/1.0.1` (it appears in the list after CI passes on the push), approve `production`. Staging keeps running `main`; nothing to merge back, the fix is already on `main`.
+   The hotfix build runs on prod first: it is built from the branch for prod only. CI on the branch and the deploy's checks are what stand before it. To test it before prod instead, release `staging/v1.0.1-rc.1` with target `release/1.0.1` and promote that rc (staging then runs the hotfix until the next rc from `main`).
+   Promote refuses a commit that is neither on `main` nor a `-x` cherry-pick of a `main` commit, and a branch whose CI did not pass.
 
 Only these are done by hand: an rc release, Promote, Rollback, and the approvals. No tag is ever made anywhere else.
 
@@ -52,7 +53,7 @@ Only these are done by hand: an rc release, Promote, Rollback, and the approvals
 | --- | --- | --- |
 | A change to the API and the web | two pull requests, merged in step | one pull request |
 | After a merge | Notify hub, then Bump submodule pins | nothing |
-| Release tags | in the hub, copied to be and fe | here only |
+| Release tags | in the hub, copied to be and fe | here only; the release steps always come from main (`release-run.yml`) |
 | Hotfix | Start hotfix button (pins move across repos) | a branch, a cherry-pick and an rc, by hand |
 | "Is this on main?" | GitHub compare API across repos | `git merge-base` here |
 | CI | each repo runs everything it has | one workflow, jobs filtered by path, one aggregate check |
