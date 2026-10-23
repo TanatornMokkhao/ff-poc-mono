@@ -8,7 +8,7 @@ The same POC as [ff-poc-hub](https://github.com/TanatornMokkhao/ff-poc-hub) + ff
 | Stage | version (be + fe, one commit) | mobile | Last deployed |
 | --- | --- | --- | --- |
 | staging | `1.0.1-rc.2` (9fb00e6) | `1.0.1-rc.2` | 2026-10-23 12:41 UTC ([run](https://github.com/TanatornMokkhao/ff-poc-mono/actions/runs/39954817127)) |
-| prod | `1.0.0` (cb92e71) | `1.0.0` | 2026-10-23 12:46 UTC ([run](https://github.com/TanatornMokkhao/ff-poc-mono/actions/runs/39953973483)) |
+| prod | `1.0.1` (9fb00e6) | `1.0.1` | 2026-10-23 13:00 UTC ([run](https://github.com/TanatornMokkhao/ff-poc-mono/actions/runs/39957305682)) |
 
 _Each row is written by that stage's last successful deploy. mobile is the app build the testers or stores were last given, not what users have installed._
 <!-- status:end -->
