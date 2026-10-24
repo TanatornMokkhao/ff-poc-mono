@@ -18,4 +18,7 @@ terraform {
 
 provider "aws" {
   region = var.region
+  # The POC's own account. Credentials for any other account (a client's included) fail before a
+  # single call, so a wrong profile can never plan or apply anything elsewhere.
+  allowed_account_ids = ["375355731232"]
 }

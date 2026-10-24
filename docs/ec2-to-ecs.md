@@ -1,0 +1,154 @@
+# Moving a backend from EC2 to ECS
+
+How this repo rehearses Freedom Fight's move of its backend from one EC2 box to ECS, on this POC's own
+AWS account, and what each step taught. Read it before planning the real move.
+
+The rehearsal runs staging the way FF would run the move: one load balancer in front of the old EC2
+box and the new ECS services, both on the same Postgres and Redis. Traffic moves between them by
+weight, and moves back the same way.
+
+## What FF runs, and what stands in for it here
+
+| FF today | This rehearsal | Same or different |
+|---|---|---|
+| One EC2 `t3a.medium`, pm2, api + worker + crons in one process | One EC2 `t3a.micro`, Docker, the be in one container | Same shape, smaller box |
+| Deploy by SSH from Gitea Actions, `git pull` + `npm ci` | Deploy by SSM Run Command from GitHub Actions, `docker pull` | Different transport; SSM needs no SSH key or open port |
+| MySQL on RDS, read replica | Postgres on RDS `db.t4g.micro`, no replica | Different engine; the deploy steps are the same |
+| Valkey `cache.t3.small`, one node | Valkey `cache.t4g.micro`, one node | Same |
+| An Application Load Balancer (inferred from the bill, not read) | One ALB with two weighted target groups | Same idea |
+| Secrets in a `.env` file on the box | Parameter Store, plus the RDS-managed password in Secrets Manager | Different; the move has to carry every key across |
+| ECS: none | api and worker as separate Fargate services | The target |
+
+## How it is wired
+
+```
+                      ┌─ weight 100 - ecs_weight ─► target group "ec2" ─► EC2 box (api + worker + crons)
+Internet ─► ALB :80 ──┤                                                        │
+                      └─ weight ecs_weight ───────► target group "ecs" ─► ECS service "api"
+                                                                               │
+                                                     ECS service "worker" ─────┤  (no load balancer)
+                                                                               ▼
+                                                        Postgres (private) and Valkey (private)
+```
+
+- Everything lives in `infra/sim/`, called from `infra/sim.tf`, and exists only while `staging_enabled`
+  is true.
+- `infra/sim.auto.tfvars` holds the three switches: `staging_enabled`, `ecs_weight` and `worker_count`.
+  Each change to them is a pull request with a plan to read.
+- The ALB uses group stickiness, so a client stays on the side it first reached. socket.io needs this
+  while both sides serve.
+- Terraform creates the ECS services once and then ignores `task_definition`. Deploys own the running
+  version, so a later `terraform apply` never rolls a release back.
+- The worker service may stop before its replacement starts (minimum healthy 0%), so two workers never
+  run the same crons at once.
+
+## Safety rails
+
+- Terraform refuses any account but `375355731232` (`allowed_account_ids` in `infra/versions.tf` and
+  `infra/bootstrap/main.tf`). Credentials for FF's account, or any other, fail before the first call.
+- Every apply waits for an approval on the `infra` environment.
+- The plan role can read every simulated resource but no secret: `secretsmanager:GetSecretValue`,
+  `ssm:*` and `kms:*` are denied outright.
+- The database password never enters Terraform state. RDS manages it in Secrets Manager. ECS hands it
+  to the container, and the EC2 box reads it with its own role.
+- The deploy role still cannot read a setting or the password.
+- A budget in `infra/bootstrap` mails at 80% of USD 50 spent, or when the month is forecast past it.
+
+## Cost
+
+On-demand list prices for ap-southeast-1 from the AWS Price List API, read 2026-10-24. A month is 730
+hours.
+
+| Part | USD / month |
+|---|---|
+| EC2 `t3a.micro`, 8 GB disk, public IPv4 | 13.03 |
+| ECS api, 0.25 vCPU / 0.5 GB, public IPv4 | 14.90 |
+| ECS worker, 0.25 vCPU / 0.5 GB, public IPv4 | 14.90 |
+| ALB, 1 LCU, 2 public IPv4 | 31.54 |
+| RDS Postgres `db.t4g.micro`, 20 GB | 21.01 |
+| Valkey `cache.t4g.micro` | 14.02 |
+| CloudWatch Logs, 1 GB | 0.73 |
+| **Total** | **110.12**, about 3.62 a day |
+
+Turn it off between test sessions (step 7).
+
+## Steps
+
+Each step is one pull request unless it says otherwise. Check a box only when its evidence exists.
+
+### 1. Add the simulation, switched off
+
+- [ ] Pull request adds `infra/sim/`, `infra/sim.tf`, `infra/sim.auto.tfvars` with
+  `staging_enabled = false`, the account lock, and the bootstrap changes.
+- [ ] The Terraform plan on the pull request reads `No changes`.
+
+### 2. Grant the new permissions (bootstrap, by a person)
+
+`infra/bootstrap` is applied from a laptop with admin keys, never by CI. It widens the Terraform role,
+the plan role and the boundary for the simulated services, and adds the budget.
+
+- [ ] `aws sts get-caller-identity` prints account `375355731232`.
+- [ ] `cd infra/bootstrap && terraform plan -var budget_email=<address>` shows only the changed role
+  policies, the boundary and the new budget. Nothing is destroyed.
+- [ ] The person who owns the account applies it.
+
+### 3. Turn staging on
+
+- [ ] Pull request sets `staging_enabled = true`, `ecs_weight = 0`, `worker_count = 0`.
+- [ ] The plan adds the network, the ALB, the EC2 box, the ECS cluster and services, RDS, Valkey, the
+  log group and the roles, and destroys nothing.
+- [ ] After the approved apply, `curl <sim.url>/health` answers from EC2.
+
+### 4. Teach the be and the deploy both runtimes
+
+- [ ] Settings set by the platform (`DB_HOST`, `DB_PASSWORD`, `REDIS_QUEUE_HOST`) win over Parameter
+  Store. Today `loadSettings` overwrites them.
+- [ ] The be builds its database URL from `DB_*` when `DATABASE_URL` is empty.
+- [ ] `/version` reports `RUNTIME` (`ec2` or `ecs`), so a request shows which side answered.
+- [ ] A `worker.js` entry point runs a queue and a cron behind a Redis lock, and the api publishes
+  socket events on a Redis channel that every api process reads.
+- [ ] `scripts/deploy.sh` takes a target. `ec2` sends the old deploy through SSM Run Command. `ecs`
+  registers a task definition, runs the migration as a one-off task, updates the services, waits
+  until they are stable, smoke-tests through the ALB and rolls back on failure.
+
+### 5. Move traffic
+
+One pull request per weight: 10, 50, 100. During each, a script calls the ALB without pause and
+records every error and which runtime answered.
+
+- [ ] Weight 10: about 10% of answers come from ECS, no errors.
+- [ ] Weight 50, then 100: no errors during either change.
+- [ ] Back to 0 (the rollback): EC2 answers everything again, no errors.
+- [ ] An ECS task killed at weight 50: the ALB stops sending to it and EC2 carries the load.
+- [ ] A deploy to ECS while EC2 serves: no errors.
+
+### 6. Prove the hard parts
+
+- [ ] Both runtimes up, crons enabled on both: each cron tick runs once (Redis lock).
+- [ ] A socket client on EC2 receives an event raised on ECS, and the other way round.
+- [ ] A migration that fails stops the deploy, and the old version keeps serving.
+- [ ] A rollback after a migration still reads and writes through the old version.
+
+### 7. Turn it off
+
+- [ ] Pull request sets `staging_enabled = false`. The plan destroys everything it created in step 3,
+  and nothing else.
+- [ ] After the approved apply, Cost Explorer shows no new simulation charges the next day.
+
+## Findings
+
+Record each result here with its date, the run or pull request, and what it means for FF's move.
+
+| Date | Step | Result | What it means for FF |
+|---|---|---|---|
+
+## What carries over to FF, and what does not
+
+- The weighted listener is the cutover. FF's existing ALB can take a second target group without a new
+  load balancer or a DNS change.
+- If FF's ALB was made by hand, import it into Terraform (`terraform import`) or read it with a data
+  source. A plan that creates or replaces it would take production down.
+- Crons, queues and socket events are where the move is hard, not the load balancer. Step 6 rehearses
+  them on this repo's small be. FF's NestJS code has its own versions of each.
+- FF deploys from Gitea Actions over SSH. Until FF moves to GitHub, its ECS deploy needs the same steps
+  driven from Gitea.
