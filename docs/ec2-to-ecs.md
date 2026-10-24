@@ -7,6 +7,37 @@ The rehearsal runs staging the way FF would run the move: one load balancer in f
 box and the new ECS services, both on the same Postgres and Redis. Traffic moves between them by
 weight, and moves back the same way.
 
+## Result, 2026-10-24
+
+The move works end to end with no request lost, given two api tasks. Measured from outside through the
+load balancer, every request recorded:
+
+| Change | Requests across it | Server errors | Settled after |
+|---|---|---|---|
+| 0 → 10% ECS | 934 | 0 | ~12 s |
+| 10 → 50% | 822 | 0 | ~15 s |
+| One of **one** api task lost at 50% | 114 in the gap | **57 (503)** for 19 s | new task registered 19 s later |
+| One of **two** api tasks lost at 50% | 1,252 | 0 | |
+| 50 → 100% | 682 | 0 | ~11 s |
+| Rollback 100 → 0% | 552 | 0 | ~11 s |
+| Back to 100%, then the EC2 box retired | 316, then live checks | 0 | |
+| A migration that fails on real data | the deploy stopped before new code served | 0 | |
+
+What the real move needs, from these results:
+
+1. Two or more api tasks across two zones. One task leaves ECS's share with no target when it fails.
+2. The ECS stack reads FF's existing load balancer, subnets, security group, database and Redis by name
+   (`infra/sim/ecs`, `var.existing`). Nothing of FF's is imported or edited.
+3. The cutover is one weighted listener rule. Rollback is a weight change while the box still runs, and
+   the box is retired only after a rollback drill.
+4. The platform's database and Redis values win over the settings store.
+5. Migrations run as a one-off task before new code serves, and are rehearsed on a copy of real data:
+   CI's empty database passed the migration that failed on staging.
+6. The deploy watches each ECS rollout until `COMPLETED` and tells a rollback from a rollout still running.
+
+Not rehearsed: crons running once across two runtimes (Redis lock) and socket events between them
+(steps 4 and 6). They are where FF's NestJS code differs most and need their own rehearsal.
+
 ## What FF runs, and what stands in for it here
 
 | FF today | This rehearsal | Same or different |
@@ -115,45 +146,57 @@ the plan role and the boundary for the simulated services, and adds the budget.
   Valkey `available`, EC2 `running`, ECS api 1/1 healthy in the `ecs` target group, and its log reads
   `loaded 10 settings from /ff-poc-mono/staging/be/`. The ALB answers 502 until the be runs on EC2
   (step 4).
-- [ ] Split into `current` and `ecs` with `moved` blocks. Read-only plan: `1 to add, 2 to change, 0 to
-  destroy`, 32 moved. The listener rule is added, the listener goes back to all-EC2, and the EC2 policy
-  loses its log statement.
+- [x] Split into `current` and `ecs` with `moved` blocks. #34: `1 added, 2 changed, 0 destroyed`, 32
+  moved. The listener rule is added, the listener goes back to all-EC2, and the EC2 policy loses its log
+  statement.
 
 ### 4. Teach the be and the deploy both runtimes
 
-- [ ] Settings set by the platform (`DB_HOST`, `DB_PASSWORD`, `REDIS_QUEUE_HOST`) win over Parameter
-  Store. Today `loadSettings` overwrites them.
-- [ ] The be builds its database URL from `DB_*` when `DATABASE_URL` is empty.
-- [ ] `/version` reports `RUNTIME` (`ec2` or `ecs`), so a request shows which side answered.
-- [ ] A `worker.js` entry point runs a queue and a cron behind a Redis lock, and the api publishes
-  socket events on a Redis channel that every api process reads.
-- [ ] `scripts/deploy.sh` takes a target. `ec2` sends the old deploy through SSM Run Command. `ecs`
-  registers a task definition, runs the migration as a one-off task, updates the services, waits
-  until they are stable, smoke-tests through the ALB and rolls back on failure.
+- [x] Settings set by the platform (`DB_HOST`, `DB_PASSWORD`, `REDIS_QUEUE_HOST`) win over Parameter
+  Store where `RUNTIME` is set. #35; `/info` reads the RDS endpoint, not the placeholder.
+- [x] The be builds its database connection from `DB_*`, with TLS checked against the RDS bundle, when
+  `DATABASE_URL` is empty. #35; migrations and `/notes` ran against RDS.
+- [x] `/version` reports `runtime` (`ec2`, `ecs` or `local`). #35.
+- [ ] Not done: a `worker.js` entry point with a queue and a cron behind a Redis lock, and socket events
+  on a Redis channel every api process reads. Left out of this rehearsal (see Result).
+- [x] `scripts/deploy.sh` takes targets from `deploy/<stage>/be.yaml`. `ec2` deploys through SSM Run
+  Command; `ecs` registers task definitions, migrates as a one-off task, rolls both services and waits
+  for `rolloutState` `COMPLETED`, then smoke-tests through the ALB. #36, #37, #38.
 
 ### 5. Move traffic
 
 One pull request per weight: 10, 50, 100. During each, a script calls the ALB without pause and
 records every error and which runtime answered.
 
-- [ ] Weight 10: about 10% of answers come from ECS, no errors.
-- [ ] Weight 50, then 100: no errors during either change.
-- [ ] Back to 0 (the rollback): EC2 answers everything again, no errors.
-- [ ] An ECS task killed at weight 50: the ALB stops sending to it and EC2 carries the load.
-- [ ] A deploy to ECS while EC2 serves: no errors.
+- [x] Weight 10: about 10% of answers come from ECS, no errors. #39.
+- [x] Weight 50, then 100: no errors during either change. #40, #42.
+- [x] Back to 0 (the rollback): EC2 answers everything again, no errors. #43, then back to 100 in #44.
+- [x] An ECS task killed at weight 50. With one task the ALB did **not** move its share to EC2: 57
+  errors over 19 s. With two tasks (#41): 0 errors.
+- [ ] Not measured: a deploy to ECS while EC2 served. Deploys ran during the rehearsal, but none with
+  the measuring script running.
+- [x] Retire the EC2 box once ECS serves everything. #45: only the box's five pieces destroyed.
 
 ### 6. Prove the hard parts
 
-- [ ] Both runtimes up, crons enabled on both: each cron tick runs once (Redis lock).
-- [ ] A socket client on EC2 receives an event raised on ECS, and the other way round.
-- [ ] A migration that fails stops the deploy, and the old version keeps serving.
-- [ ] A rollback after a migration still reads and writes through the old version.
+- [ ] Not done: crons running once across both runtimes (Redis lock).
+- [ ] Not done: socket events between EC2 and ECS.
+- [x] A migration that fails stops the deploy, and the old version keeps serving. #46, release
+  `1.4.0-rc.1`.
+- [ ] Not done: a traffic rollback after a migration has already applied. The rollback drill (#43) ran
+  on an unchanged schema.
 
 ### 7. Turn it off
 
 - [ ] Pull request sets `staging_enabled = false`. The plan destroys everything it created in step 3,
-  and nothing else.
+  and nothing else. Local plan before the pull request: `0 to add, 0 to change, 31 to destroy` (21 in
+  the current stack, 9 in the ECS stack, and the deploy role's simulation policy). ECR, CloudFront, the
+  web bucket and bootstrap stay. The same pull request removes `deploy/staging/be.yaml`, so staging
+  deploys go back to the runner path.
 - [ ] After the approved apply, Cost Explorer shows no new simulation charges the next day.
+
+Task definition revisions registered by `scripts/deploy.sh` are outside Terraform and stay after the
+destroy. They cost nothing.
 
 ## Findings
 
@@ -177,6 +220,7 @@ Record each result here with its date, the run or pull request, and what it mean
 | 2026-10-24 | 5 | Back to 100 (#44): 316 requests across the change, 0 errors, 100% ECS 20 s after. Retiring the box (#45): `ec2_enabled = false` and staging deploys to `ecs` only; plan `0 to add, 1 to change, 5 to destroy`, the five being the instance, its role, policy and instance profile, and its target group attachment. The listener is left as it is: the `/*` rule at 100% ECS catches every path, so its default (the empty EC2 group) is never used | The cutover needs no edit to FF's hand-made listener. Retire the box only after a rollback drill, and expect the plan to destroy the box's pieces and nothing else |
 | 2026-10-24 | 5 | After the box was retired: EC2 `terminated`, ECS api 2/2, `/version` answers `runtime: ecs`, and `/notes` reads the note written while EC2 served alongside a new one | Both runtimes share one database, so nothing moves with the cutover |
 | 2026-10-24 | 6 | A migration that passes on a fresh database and fails on real data (#46): `CHECK (char_length(body) <= 200)` with one 252-character note on staging. CI passed it, `migrations` job included. Release `1.4.0-rc.1`: the one-off task failed with `check constraint "notes_body_at_most_200" ... is violated by some row`, the deploy stopped before ECS changed, and ECS kept serving `1.3.0-rc.1` with all notes readable. #47 removes the migration (it rolled back and never reached a prod tag) | CI's empty database cannot prove a migration against real data. Migrating as a separate step before new code serves is what keeps members unaffected; on FF, also rehearse each migration on a copy of real data before release |
+| 2026-10-24 | 6 | Recovery: release `1.4.0-rc.2` (run 40109477042) printed `schema already current`, so the failed `0003` was recorded nowhere. ECS moved to api:8 and worker:8, `/version` answered `1.4.0-rc.2` with `runtime: ecs`, and notes 3, 2 and 1 were intact | The failed migration left nothing to clean up. The fix is the next release, not a database repair |
 
 ## What carries over to FF, and what does not
 
@@ -186,7 +230,7 @@ Record each result here with its date, the run or pull request, and what it mean
   change. Deleting the rule is the rollback.
 - FF's ALB, database and Redis were likely made by hand. Read them with data sources; importing them
   would let a wrong plan replace production.
-- Crons, queues and socket events are where the move is hard, not the load balancer. Step 6 rehearses
-  them on this repo's small be. FF's NestJS code has its own versions of each.
+- Crons, queues and socket events are where the move is hard, not the load balancer. This rehearsal did
+  not cover them; FF's NestJS code has its own versions of each and needs its own rehearsal.
 - FF deploys from Gitea Actions over SSH. Until FF moves to GitHub, its ECS deploy needs the same steps
   driven from Gitea.
