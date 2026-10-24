@@ -4,7 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY server.js index.js migrate.js errors.js db.js .env.example ./
 # RDS accepts only TLS; the be checks the server against this bundle (db.js).
-ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/certs/rds-global-bundle.pem
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /etc/ssl/certs/rds-global-bundle.pem
 COPY features ./features
 # Migrations ship in the image, so the deploy can run `node migrate.js` from the image it deploys.
 COPY migrations ./migrations
@@ -17,4 +17,5 @@ ENV GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT
 LABEL org.opencontainers.image.revision=$GIT_SHA org.opencontainers.image.created=$BUILT_AT
 ENV PORT=3000
 EXPOSE 3000
+USER node
 CMD ["node", "index.js"]

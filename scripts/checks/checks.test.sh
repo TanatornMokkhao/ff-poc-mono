@@ -16,6 +16,7 @@ repo() {
   git -C "$d" config core.fileMode false
   mkdir -p "$d/scripts/checks" "$d/.github/workflows" "$d/apps/fe/android"
   cp "$HERE"/*.sh "$d/scripts/checks/"
+  cp -r "$HERE/../../.semgrep" "$d/"
   git -C "$d" add -A
   git -C "$d" update-index --chmod=+x scripts/checks/*.sh
   git -C "$d" commit -qm base
@@ -104,6 +105,27 @@ rm "$R/apps/be/.env.local"
 commit "key removed"
 expect 0 secrets.sh "a commit that removes it passes"
 rm -rf "$R"
+
+# sast.sh (CI installs Semgrep only when a change touches what it reads)
+if ! command -v semgrep >/dev/null; then
+  echo "skip sast.sh: semgrep is not installed"
+else
+  R=$(repo)
+  printf 'on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ github.event.pull_request.title }}"\n' > "$R/.github/workflows/t.yml"
+  commit "pull request title spliced into a shell"
+  expect 1 sast.sh "a workflow running the pull request title as shell fails"
+  printf 'on: pull_request\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "$TITLE"\n        env:\n          TITLE: ${{ github.event.pull_request.title }}\n' > "$R/.github/workflows/t.yml"
+  commit "title passed through env"
+  expect 0 sast.sh "the same title through env passes"
+  mkdir -p "$R/apps/be"
+  printf 'export const find = (query, id) => query(`SELECT * FROM notes WHERE id = ${id}`);\n' > "$R/apps/be/find.js"
+  commit "SQL built from a template string"
+  expect 1 sast.sh "SQL with a value spliced in fails"
+  printf 'export const find = (query, id) => query(%s, [id]);\n' "'SELECT * FROM notes WHERE id = \$1'" > "$R/apps/be/find.js"
+  commit "SQL with a parameter"
+  expect 0 sast.sh "the same query with \$1 passes"
+  rm -rf "$R"
+fi
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

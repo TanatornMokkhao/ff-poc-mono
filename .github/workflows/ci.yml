@@ -108,6 +108,10 @@ jobs:
           for _ in $(seq 20); do curl -fs localhost:3000/health && break; sleep 1; done
           curl -fs localhost:3000/health
           docker exec be-check ls migrations
+      - name: The image runs as a user that can read the RDS certificates
+        run: |
+          [ "$(docker exec be-check id -u)" != 0 ] || { echo "::error::the be runs as root"; exit 1; }
+          docker exec be-check test -r /etc/ssl/certs/rds-global-bundle.pem
       # The two commands the deploy runs before it starts a new be.
       - name: The image migrates the way the deploy runs it
         run: |
@@ -274,6 +278,7 @@ jobs:
       BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
       ACTIONLINT_VERSION: 1.7.7
       GITLEAKS_VERSION: 8.21.2
+      SEMGREP_VERSION: 1.182.1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -285,6 +290,19 @@ jobs:
           curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz -C "$RUNNER_TEMP" gitleaks
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      # Semgrep runs only when the change touches what it reads, to save Actions minutes. Nightly
+      # has no base, so every file counts and it always runs.
+      - name: Does the change touch what Semgrep reads?
+        id: sast
+        run: |
+          if bash scripts/checks/changed-files.sh | grep -qE '^(apps/|\.github/|\.semgrep/|scripts/checks/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No change under apps/, .github/, .semgrep/ or scripts/checks/: Semgrep skipped."
+          fi
+      - name: Install semgrep
+        if: ${{ steps.sast.outputs.run == 'true' }}
+        run: pipx install "semgrep==${SEMGREP_VERSION}"
       - name: The checks catch what they exist for
         if: ${{ !cancelled() }}
         run: bash scripts/checks/checks.test.sh
@@ -317,6 +335,9 @@ jobs:
       - name: No secrets in the new commits
         if: ${{ !cancelled() }}
         run: bash scripts/checks/secrets.sh
+      - name: No new Semgrep findings
+        if: ${{ !cancelled() && steps.sast.outputs.run == 'true' }}
+        run: bash scripts/checks/sast.sh
 
   # The required check: passes when every job that had to run passed, and skips count as pass.
   ci:
