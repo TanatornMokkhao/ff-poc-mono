@@ -25,6 +25,9 @@ expect() {
       svc=$(sed -n "s/.*--services \([a-z]*\).*/\1/p" <<<"$*")
       f="$ANSWERS/$svc"
       head -1 "$f"
+      # The answer is out before this call ends, as with a real CLI that is still exiting: code that
+      # reads it without waiting for the call to finish reads the next poll from a stale file.
+      command sleep 0.3
       [ "$(wc -l < "$f")" -le 1 ] || sed -i 1d "$f"
     }
     deploy_ecs' _ "$HERE/deploy-targets.sh" 2>&1) || got=1
