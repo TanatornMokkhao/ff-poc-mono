@@ -3,12 +3,13 @@
 // which is why every migration must work with the release before it (see MIGRATIONS.md).
 //   DATABASE_URL=postgres://… node migrate.js
 // In a deploy it reads its settings from Parameter Store (SSM_PATH) as the server does, and exits 0
-// without touching anything when the stage has no DATABASE_URL.
+// without touching anything when the stage has no database (see db.js).
 import { readdirSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { loadSettings } from './features/settings/settings.js';
 import { messageOf } from './errors.js';
+import { dbConfig } from './db.js';
 
 const dir = new URL('./migrations/', import.meta.url);
 
@@ -56,11 +57,12 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     console.error(`migrate: settings: ${messageOf(err)}`);
     process.exit(1);
   }
-  if (!process.env.DATABASE_URL) {
+  const config = dbConfig();
+  if (!config) {
     console.log('no database, migrate skipped');
     process.exit(0);
   }
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  const client = new pg.Client(config);
   try {
     await client.connect();
   } catch (err) {

@@ -22,6 +22,7 @@ export function handle(req, res) {
       version: version(),
       commit: process.env.GIT_SHA || 'unknown',
       builtAt: process.env.BUILT_AT || 'unknown',
+      runtime: process.env.RUNTIME || 'local',
     });
   }
   if (req.url === '/info') {

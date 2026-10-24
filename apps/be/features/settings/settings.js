@@ -22,10 +22,13 @@ export function missingKeys(keys, env) {
 // With SSM_PATH set (e.g. /ff-poc/staging/be/), reads every parameter under it into process.env,
 // decrypting secrets, then stops the server if any .env.example key is still missing.
 // Without SSM_PATH (local runs, tests) it leaves process.env as it is and checks nothing.
+// Where the platform runs the be (RUNTIME is ec2 or ecs) it sets the database and Redis addresses
+// itself, and those win over the store; elsewhere the store wins, as before.
 /** @param {{ env?: Record<string, string | undefined>, client?: Pick<SSMClient, 'send'> }} [options] */
 export async function loadSettings({ env = process.env, client = new SSMClient({}) } = {}) {
   const path = env.SSM_PATH;
   if (!path) return { loaded: 0 };
+  const platformSet = new Set(env.RUNTIME ? Object.keys(env).filter((k) => env[k]) : []);
   let loaded = 0;
   /** @type {string | undefined} */
   let NextToken;
@@ -34,7 +37,9 @@ export async function loadSettings({ env = process.env, client = new SSMClient({
     const page = await client.send(new GetParametersByPathCommand({ Path: path, WithDecryption: true, NextToken }));
     for (const p of page.Parameters ?? []) {
       if (!p.Name) continue;
-      env[p.Name.slice(p.Name.lastIndexOf('/') + 1)] = p.Value;
+      const key = p.Name.slice(p.Name.lastIndexOf('/') + 1);
+      if (platformSet.has(key)) continue;
+      env[key] = p.Value;
       loaded += 1;
     }
     NextToken = page.NextToken;
