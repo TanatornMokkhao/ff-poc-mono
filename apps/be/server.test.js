@@ -29,6 +29,7 @@ test('health and version answer', async () => {
     const v = (await get(server, '/version')).body;
     assert.equal(v.service, 'be');
     assert.equal(v.commit, process.env.GIT_SHA || 'unknown');
+    assert.equal(v.runtime, process.env.RUNTIME || 'local', '/version says which runtime answered');
     const info = (await get(server, '/info')).body;
     assert.equal(info.service, 'be');
     assert.equal(typeof info.uptimeSeconds, 'number');

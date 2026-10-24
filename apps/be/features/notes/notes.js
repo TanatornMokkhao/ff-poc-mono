@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { messageOf } from '../../errors.js';
+import { dbConfig } from '../../db.js';
 
 /** @typedef {import('../../types.js').Send} Send */
 /** @typedef {import('../../types.js').Request} Request */
@@ -7,7 +8,7 @@ import { messageOf } from '../../errors.js';
 /** @type {pg.Pool | undefined} */
 let pool;
 /** @returns {pg.Pool} */
-const db = () => (pool ??= new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 }));
+const db = () => (pool ??= new pg.Pool({ ...dbConfig(), max: 5 }));
 
 /**
  * @param {Request} req
@@ -40,7 +41,7 @@ const poolQuery = (sql, params) => db().query(sql, params);
  * @param {Query} [query]
  */
 export async function notes(req, send, query = poolQuery) {
-  if (!process.env.DATABASE_URL) return send(503, { error: 'no database configured' });
+  if (!dbConfig()) return send(503, { error: 'no database configured' });
   try {
     if (req.method === 'GET') {
       const { rows } = await query('SELECT id, body, author, created_at FROM notes ORDER BY id DESC LIMIT 20');
