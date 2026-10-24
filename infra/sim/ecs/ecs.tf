@@ -1,5 +1,5 @@
-# The "after" side: the api and the worker as separate Fargate services from the same image, as FF
-# would run them. Terraform creates them once; every deploy registers a new task definition and
+# The move: the api and the worker as separate Fargate services from the same image, as FF would
+# run them. Terraform creates them once; every deploy registers a new task definition and
 # points the service at it, so the services ignore task_definition here and Terraform never rolls a
 # release back.
 resource "aws_ecs_cluster" "this" {
@@ -27,7 +27,7 @@ data "aws_iam_policy_document" "pull_and_secret" {
   }
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_db_instance.this.master_user_secret[0].secret_arn]
+    resources = [data.aws_db_instance.this.master_user_secret[0].secret_arn]
   }
   statement {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
@@ -53,14 +53,14 @@ locals {
   # What the platform tells the be about where it runs; the rest of its settings come from SSM_PATH.
   environment = [
     { name = "SSM_PATH", value = var.ssm_path },
-    { name = "DB_HOST", value = aws_db_instance.this.address },
-    { name = "DB_NAME", value = aws_db_instance.this.db_name },
-    { name = "DB_USERNAME", value = aws_db_instance.this.username },
-    { name = "REDIS_QUEUE_HOST", value = aws_elasticache_replication_group.this.primary_endpoint_address },
+    { name = "DB_HOST", value = data.aws_db_instance.this.address },
+    { name = "DB_NAME", value = data.aws_db_instance.this.db_name },
+    { name = "DB_USERNAME", value = data.aws_db_instance.this.master_username },
+    { name = "REDIS_QUEUE_HOST", value = data.aws_elasticache_replication_group.this.primary_endpoint_address },
     { name = "RUNTIME", value = "ecs" },
   ]
   secrets = [
-    { name = "DB_PASSWORD", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:password::" },
+    { name = "DB_PASSWORD", valueFrom = "${data.aws_db_instance.this.master_user_secret[0].secret_arn}:password::" },
   ]
   container = {
     image        = local.image
@@ -119,8 +119,8 @@ resource "aws_ecs_service" "api" {
     rollback = true
   }
   network_configuration {
-    subnets          = aws_subnet.public[*].id
-    security_groups  = [aws_security_group.app.id]
+    subnets          = data.aws_subnets.public.ids
+    security_groups  = [data.aws_security_group.app.id]
     assign_public_ip = true
   }
   load_balancer {
@@ -131,7 +131,7 @@ resource "aws_ecs_service" "api" {
   lifecycle {
     ignore_changes = [task_definition]
   }
-  depends_on = [aws_lb_listener.http]
+  depends_on = [aws_lb_listener_rule.split]
 }
 
 # No load balancer: the worker takes jobs from Redis. A deploy may stop it before the new one starts
@@ -149,11 +149,66 @@ resource "aws_ecs_service" "worker" {
     rollback = true
   }
   network_configuration {
-    subnets          = aws_subnet.public[*].id
-    security_groups  = [aws_security_group.app.id]
+    subnets          = data.aws_subnets.public.ids
+    security_groups  = [data.aws_security_group.app.id]
     assign_public_ip = true
   }
   lifecycle {
     ignore_changes = [task_definition]
+  }
+}
+
+resource "aws_cloudwatch_log_group" "be" {
+  name              = "/${var.name}/be"
+  retention_in_days = 7
+}
+
+resource "aws_lb_target_group" "ecs" {
+  name                 = "${var.name}-ecs"
+  vpc_id               = data.aws_lb.this.vpc_id
+  target_type          = "ip"
+  port                 = 3000
+  protocol             = "HTTP"
+  deregistration_delay = 30
+  health_check {
+    path                = "/health"
+    interval            = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    timeout             = 5
+  }
+  stickiness {
+    type    = "lb_cookie"
+    enabled = true
+  }
+}
+
+# The cutover. A rule on the existing listener splits every path between the box and ECS by weight;
+# the listener's own default (all to the box) is never touched, so deleting this rule is the full
+# rollback. Group stickiness keeps a client on the side it first reached, which socket.io needs.
+resource "aws_lb_listener_rule" "split" {
+  listener_arn = data.aws_lb_listener.http.arn
+  priority     = 100
+  action {
+    type = "forward"
+    forward {
+      target_group {
+        arn    = data.aws_lb_target_group.ec2.arn
+        weight = 100 - var.ecs_weight
+      }
+      target_group {
+        arn    = aws_lb_target_group.ecs.arn
+        weight = var.ecs_weight
+      }
+      stickiness {
+        enabled  = true
+        duration = 3600
+      }
+    }
+  }
+  condition {
+    path_pattern {
+      values = ["/*"]
+    }
   }
 }

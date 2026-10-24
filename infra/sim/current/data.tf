@@ -46,8 +46,3 @@ resource "aws_elasticache_replication_group" "this" {
   at_rest_encryption_enabled = true
   apply_immediately          = true
 }
-
-resource "aws_cloudwatch_log_group" "be" {
-  name              = "/${var.name}/be"
-  retention_in_days = 7
-}

@@ -21,9 +21,21 @@ data "aws_iam_policy_document" "ec2_trust" {
 }
 
 # Same settings access as the ECS runtime, plus what the box itself needs: pull the image, read the
-# database password, write logs, and take commands from SSM.
+# database password, and take commands from SSM.
 data "aws_iam_policy_document" "ec2" {
-  source_policy_documents = [var.runtime_policy_json, data.aws_iam_policy_document.pull_and_secret.json]
+  source_policy_documents = [var.runtime_policy_json]
+  statement {
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    actions   = ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+    resources = [var.ecr_repository_arn]
+  }
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_db_instance.this.master_user_secret[0].secret_arn]
+  }
   statement {
     actions = [
       "ssm:UpdateInstanceInformation", "ssm:ListAssociations", "ssm:ListInstanceAssociations",

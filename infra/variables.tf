@@ -41,3 +41,10 @@ variable "sim_image_tag" {
   type    = string
   default = "1.2.0-rc.1"
 }
+
+# The ECS side of the simulation. false removes it all (the listener rule first), leaving the EC2
+# side exactly as before the move: the full rollback.
+variable "ecs_enabled" {
+  type    = bool
+  default = true
+}

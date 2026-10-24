@@ -22,19 +22,29 @@ weight, and moves back the same way.
 ## How it is wired
 
 ```
-                      ┌─ weight 100 - ecs_weight ─► target group "ec2" ─► EC2 box (api + worker + crons)
-Internet ─► ALB :80 ──┤                                                        │
-                      └─ weight ecs_weight ───────► target group "ecs" ─► ECS service "api"
-                                                                               │
-                                                     ECS service "worker" ─────┤  (no load balancer)
-                                                                               ▼
+                    default action (FF today) ──────────► target group "ec2" ─► EC2 box (api + worker + crons)
+Internet ─► ALB :80 ┤                                    ▲                              │
+                    └─ rule "/*" (the move) ┬─ 100 - w ─┘                              │
+                                            └─ w ─► target group "ecs" ─► ECS "api"   │
+                                                    ECS "worker" (no load balancer) ───┤
+                                                                                      ▼
                                                         Postgres (private) and Valkey (private)
 ```
 
-- Everything lives in `infra/sim/`, called from `infra/sim.tf`, and exists only while `staging_enabled`
-  is true.
-- `infra/sim.auto.tfvars` holds the three switches: `staging_enabled`, `ecs_weight` and `worker_count`.
-  Each change to them is a pull request with a plan to read.
+- `infra/sim/current` stands in for FF today: network, ALB with a listener that sends everything to
+  EC2, the EC2 box, Postgres, Valkey. It exists while `staging_enabled` is true.
+- `infra/sim/ecs` is the move. It owns only what the move adds (cluster, services, task definitions,
+  the `ecs` target group, one listener rule, the exec role, the log group) and finds everything else
+  **by name** with data sources (`var.existing`), as it would on FF's account. It exists while
+  `staging_enabled` and `ecs_enabled` are true.
+- The ECS tasks carry the EC2 box's own security group, which the database and Redis already accept,
+  so no rule on the existing side changes.
+- The cutover is a listener rule (`/*`, priority 100) that splits by `ecs_weight`. The listener's default
+  action is never edited, so `ecs_enabled = false` deletes the rule and leaves the existing side exactly
+  as it was.
+- `infra/sim.auto.tfvars` holds the switches. Each change is a pull request with a plan to read.
+- Starting from nothing takes two applies, `current` first and then `ecs`, because `ecs` reads `current`
+  at plan time. On FF the existing side is already there.
 - The ALB uses group stickiness, so a client stays on the side it first reached. socket.io needs this
   while both sides serve.
 - Terraform creates the ECS services once and then ignores `task_definition`. Deploys own the running
@@ -98,10 +108,16 @@ the plan role and the boundary for the simulated services, and adds the budget.
 
 ### 3. Turn staging on
 
-- [ ] Pull request sets `staging_enabled = true`, `ecs_weight = 0`, `worker_count = 0`.
-- [ ] The plan adds the network, the ALB, the EC2 box, the ECS cluster and services, RDS, Valkey, the
-  log group and the roles, and destroys nothing.
-- [ ] After the approved apply, `curl <sim.url>/health` answers from EC2.
+- [x] Pull request sets `staging_enabled = true`, `ecs_weight = 0`, `worker_count = 0`. #31.
+- [x] The plan adds the network, the ALB, the EC2 box, the ECS cluster and services, RDS, Valkey, the
+  log group and the roles, and destroys nothing. `Plan: 35 to add, 0 to change, 0 to destroy`.
+- [x] After the approved applies (two, see Findings), all 35 exist: RDS `available` and not public,
+  Valkey `available`, EC2 `running`, ECS api 1/1 healthy in the `ecs` target group, and its log reads
+  `loaded 10 settings from /ff-poc-mono/staging/be/`. The ALB answers 502 until the be runs on EC2
+  (step 4).
+- [ ] Split into `current` and `ecs` with `moved` blocks. Read-only plan: `1 to add, 2 to change, 0 to
+  destroy`, 32 moved. The listener rule is added, the listener goes back to all-EC2, and the EC2 policy
+  loses its log statement.
 
 ### 4. Teach the be and the deploy both runtimes
 
@@ -146,13 +162,20 @@ Record each result here with its date, the run or pull request, and what it mean
 | Date | Step | Result | What it means for FF |
 |---|---|---|---|
 | 2026-10-24 | 2 | Bootstrap cannot run from CI on purpose: it defines CI's own rights, and the Terraform role is denied changing itself, the plan role or the boundary | FF's account needs the same split. One person-applied base (roles, boundary, state, budget), everything else through an approved pipeline |
+| 2026-10-24 | 3 | First plan with changes failed in CI: the runner's `bash -e` stopped on `terraform plan`'s exit 2 ("changes") before the script read it. Fixed in #32 with a check that keeps it fixed | Any pipeline that reads `-detailed-exitcode` has this trap; test the "changes" path, not only "no changes" |
+| 2026-10-24 | 3 | First apply created 28 of 35, then RDS failed with `KMSKeyNotAccessibleFault`: the Terraform role had no KMS rights, and an encrypted RDS with a managed password uses `aws/rds` and `aws/secretsmanager` as the caller. Fixed in #33 (only through RDS and Secrets Manager); the second apply added the 7 missing in 7m34s for RDS | A plan cannot catch a missing permission; only an apply can. Give the deploying role KMS through RDS and Secrets Manager before the first database |
+| 2026-10-24 | 3 | Approving #33's run before bootstrap was applied failed the same way: merging bootstrap code changes nothing in AWS until a person applies it | Order on FF: base change applied, then the pipeline run approved |
+| 2026-10-24 | 3 | With every target unhealthy the ALB still forwards and answers 502, not 503 | A 502 at the ALB during a cutover can mean "nothing listening", not "load balancer broken" |
+| 2026-10-24 | 3 | The first split plan replaced the `ecs` target group and both task definitions: `depends_on = [module.current]` deferred every data source to apply time. Without it: 0 destroyed | In the real move, never make the ECS stack depend on the existing stack; read it with data sources at plan time |
 
 ## What carries over to FF, and what does not
 
-- The weighted listener is the cutover. FF's existing ALB can take a second target group without a new
-  load balancer or a DNS change.
-- If FF's ALB was made by hand, import it into Terraform (`terraform import`) or read it with a data
-  source. A plan that creates or replaces it would take production down.
+- `infra/sim/ecs` is the code for FF's move: point `var.existing` at FF's load balancer, target group,
+  subnets, security group, database and Redis names. Nothing of FF's existing side is imported or edited.
+- The cutover is one listener rule on FF's existing ALB, so there is no new load balancer and no DNS
+  change. Deleting the rule is the rollback.
+- FF's ALB, database and Redis were likely made by hand. Read them with data sources; importing them
+  would let a wrong plan replace production.
 - Crons, queues and socket events are where the move is hard, not the load balancer. Step 6 rehearses
   them on this repo's small be. FF's NestJS code has its own versions of each.
 - FF deploys from Gitea Actions over SSH. Until FF moves to GitHub, its ECS deploy needs the same steps
