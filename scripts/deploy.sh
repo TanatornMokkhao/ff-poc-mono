@@ -101,6 +101,40 @@ echo "Check: the $STAGE server cannot read /ff-poc-mono/$OTHER/be/ (denied)"
 IMAGE="$ECR_REPOSITORY_URL:$V"
 docker pull -q "$IMAGE"
 same_commit "image $IMAGE" "$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" "$SHA"
+
+# Where this stage's be runs: deploy/<stage>/be.yaml names the targets ("ec2", "ecs" or both, as in
+# a move from one to the other) and the AWS names they go by. Without the file the be runs on this
+# runner, the POC's stand-in for a server.
+BE_FILE="deploy/$STAGE/be.yaml"
+be_conf() { [ -f "$BE_FILE" ] && sed -n "s/^$1:[[:space:]]*\([^#]*[^[:space:]#]\).*/\1/p" "$BE_FILE"; }
+TARGETS=$(be_conf targets || true)
+if [ -n "$TARGETS" ]; then
+  NAME=$(be_conf name)
+  URL=$(be_conf url)
+  echo "be $V goes to: $TARGETS ($NAME)"
+  # shellcheck source=scripts/deploy-targets.sh
+  source scripts/deploy-targets.sh
+  # Migrate once, before any new code serves: as a one-off ECS task when ECS is a target, else on
+  # the box. The old code keeps serving meanwhile (expand / contract).
+  if [[ " $TARGETS " == *" ecs "* ]]; then
+    API_TD=$(register_task_definition "$NAME-api")
+    WORKER_TD=$(register_task_definition "$NAME-worker")
+    migrate_on_ecs "$API_TD"
+  else
+    MIGRATE_ON_BOX=1
+  fi
+  for t in $TARGETS; do
+    case "$t" in
+      ecs) deploy_ecs ;;
+      ec2) deploy_ec2 ;;
+      *) echo "::error::$BE_FILE names an unknown target: $t"; exit 1 ;;
+    esac
+  done
+  smoke_through_load_balancer
+  BE_DONE=1
+fi
+
+if [ -z "${BE_DONE:-}" ]; then
 ENVFILE=$(mktemp)
 chmod 600 "$ENVFILE"
 printf '%s\n' "AWS_ACCESS_KEY_ID=$RUNTIME_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY=$RUNTIME_SECRET_ACCESS_KEY" \
@@ -130,6 +164,7 @@ INFO=$(curl -fs localhost:3000/info)
 echo "be /info: $INFO"
 [ "$(jq -r .env <<<"$INFO")" = "$STAGE" ] || { echo "be runs with APP_ENV=$(jq -r .env <<<"$INFO"), expected $STAGE"; exit 1; }
 echo "be $V is healthy with the $STAGE settings"
+fi
 
 # fe: the web build for this stage from the release, with the version added to its config.json.
 WORK=$(mktemp -d)
