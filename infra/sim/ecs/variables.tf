@@ -56,6 +56,11 @@ variable "ecs_weight" {
   }
 }
 
+variable "api_count" {
+  description = "api tasks. Two or more: with one, losing it leaves ECS's share of traffic with no target."
+  type        = number
+}
+
 variable "worker_count" {
   description = "Worker tasks. 0 until the be has a worker entry point."
   type        = number

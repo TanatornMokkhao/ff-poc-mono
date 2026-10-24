@@ -36,6 +36,7 @@ module "ecs" {
   runtime_role_arn   = aws_iam_role.runtime["staging"].arn
   ssm_path           = "/ff-poc-mono/staging/be/"
   ecs_weight         = var.ecs_weight
+  api_count          = var.api_count
   worker_count       = var.worker_count
 }
 

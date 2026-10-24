@@ -2,4 +2,5 @@
 staging_enabled = true
 ecs_enabled     = true
 ecs_weight      = 50
+api_count       = 2
 worker_count    = 0
