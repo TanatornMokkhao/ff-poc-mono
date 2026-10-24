@@ -31,9 +31,11 @@ jobs:
       - id: c
         env:
           BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+          STAGE: ${{ inputs.stage }}
         run: |
-          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
-            echo "${{ inputs.stage }}=true" >> "$GITHUB_OUTPUT"; exit 0
+          if [ "$EVENT" = workflow_dispatch ]; then
+            echo "$STAGE=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then CHANGED=$(git diff --name-only "$BEFORE" HEAD)
           else CHANGED=$(git ls-files); fi

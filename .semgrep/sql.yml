@@ -1,0 +1,12 @@
+# The community rules miss SQL built from strings in plain `pg` code (no framework for their taint
+# sources), which is how the be talks to the database.
+rules:
+  - id: sql-built-from-strings
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: SQL is built from strings, so a value can change the query. Pass values as $1, $2 parameters instead.
+    pattern-either:
+      - pattern: $O.query($A + $B, ...)
+      - pattern: query($A + $B, ...)
+      - pattern: $O.query(`...${$X}...`, ...)
+      - pattern: query(`...${$X}...`, ...)

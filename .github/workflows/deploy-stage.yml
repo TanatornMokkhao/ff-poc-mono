@@ -24,6 +24,7 @@ jobs:
       url: ${{ vars.WEB_URL }}
     env:
       GH_TOKEN: ${{ github.token }}
+      STAGE: ${{ inputs.stage }}
     steps:
       # The deploy key pushes the README row; GITHUB_TOKEN cannot get past the main ruleset.
       - uses: actions/checkout@v4
@@ -49,7 +50,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       - uses: aws-actions/amazon-ecr-login@v2
 
-      - run: bash scripts/deploy.sh "${{ inputs.stage }}"
+      - run: bash scripts/deploy.sh "$STAGE"
         env:
           ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
           WEB_BUCKET: ${{ vars.WEB_BUCKET }}
@@ -60,18 +61,19 @@ jobs:
           RUNTIME_SESSION_TOKEN: ${{ steps.runtime.outputs.aws-session-token }}
 
       - name: Summary
+        env:
+          WEB_URL: ${{ vars.WEB_URL }}
         run: |
           {
-            echo "### ${{ inputs.stage }} deployed"
-            echo '```yaml'; cat "deploy/${{ inputs.stage }}/versions.yaml"; echo '```'
-            echo "Site: ${{ vars.WEB_URL }}"
+            echo "### $STAGE deployed"
+            echo '```yaml'; cat "deploy/$STAGE/versions.yaml"; echo '```'
+            echo "Site: $WEB_URL"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Rewrites only this stage's row of the README's "Running now" block. README is outside the
       # Deploy paths, so this commit deploys nothing.
       - name: Show what runs where in the README
         env:
-          STAGE: ${{ inputs.stage }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
