@@ -3,7 +3,7 @@ output "url" {
 }
 
 output "instance_id" {
-  value = aws_instance.be.id
+  value = var.ec2_enabled ? aws_instance.be[0].id : null
 }
 
 output "db_host" {

@@ -174,6 +174,7 @@ Record each result here with its date, the run or pull request, and what it mean
 | 2026-10-24 | 5 | The same test with `api_count = 2` (#41): one of the two api tasks stopped at 14:53:11 UTC, traffic at 50%. 1,252 requests over 3.5 min, all 200, **0 errors**, including the +37 to +60 s window that gave 57 errors with one task | Two tasks is the measured minimum for the move, not a guess |
 | 2026-10-24 | 5 | Weight 50 -> 100 (#42): 414 requests across the change, 0 errors; the last EC2 answer 10.8 s after the rule changed, then 100% ECS | The full move is one weight change, with nothing dropped |
 | 2026-10-24 | 5 | Rollback drill, 100 -> 0 (#43): 552 requests across the change, 0 errors; the last ECS answer 10.9 s after, then 100% EC2. Back to 100 in #44 | Keeping the box running behind the rule makes the way back as quiet as the way in. Keep it until the move is final |
+| 2026-10-24 | 5 | Back to 100 (#44): 316 requests across the change, 0 errors, 100% ECS 20 s after. Retiring the box (#45): `ec2_enabled = false` and staging deploys to `ecs` only; plan `0 to add, 1 to change, 5 to destroy`, the five being the instance, its role, policy and instance profile, and its target group attachment. The listener is left as it is: the `/*` rule at 100% ECS catches every path, so its default (the empty EC2 group) is never used | The cutover needs no edit to FF's hand-made listener. Retire the box only after a rollback drill, and expect the plan to destroy the box's pieces and nothing else |
 
 ## What carries over to FF, and what does not
 
