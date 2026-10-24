@@ -78,19 +78,23 @@ Each step is one pull request unless it says otherwise. Check a box only when it
 
 ### 1. Add the simulation, switched off
 
-- [ ] Pull request adds `infra/sim/`, `infra/sim.tf`, `infra/sim.auto.tfvars` with
-  `staging_enabled = false`, the account lock, and the bootstrap changes.
-- [ ] The Terraform plan on the pull request reads `No changes`.
+- [x] Pull request adds `infra/sim/`, `infra/sim.tf`, `infra/sim.auto.tfvars` with
+  `staging_enabled = false`, the account lock, and the bootstrap changes. #30, merged as `50ce130`.
+- [x] The Terraform plan on the pull request reads `No changes`. #30's plan job.
 
 ### 2. Grant the new permissions (bootstrap, by a person)
 
 `infra/bootstrap` is applied from a laptop with admin keys, never by CI. It widens the Terraform role,
 the plan role and the boundary for the simulated services, and adds the budget.
 
-- [ ] `aws sts get-caller-identity` prints account `375355731232`.
-- [ ] `cd infra/bootstrap && terraform plan -var budget_email=<address>` shows only the changed role
-  policies, the boundary and the new budget. Nothing is destroyed.
-- [ ] The person who owns the account applies it.
+- [x] `aws sts get-caller-identity` prints account `375355731232`.
+- [x] `cd infra/bootstrap && terraform plan -var budget_email=<address>` shows only the changed role
+  policies, the boundary and the new budget. Nothing is destroyed. `Plan: 1 to add, 3 to change, 0 to
+  destroy`, 2026-10-24.
+- [x] The person who owns the account applies it. Applied 2026-10-24 from the saved plan on the
+  owner's go: `1 added, 3 changed, 0 destroyed`. Read back: the Terraform role holds the `Simulation`
+  statement, the plan role `ReadSimulation`, the boundary 15 statements, and the budget is USD 50 a
+  month.
 
 ### 3. Turn staging on
 
@@ -141,6 +145,7 @@ Record each result here with its date, the run or pull request, and what it mean
 
 | Date | Step | Result | What it means for FF |
 |---|---|---|---|
+| 2026-10-24 | 2 | Bootstrap cannot run from CI on purpose: it defines CI's own rights, and the Terraform role is denied changing itself, the plan role or the boundary | FF's account needs the same split. One person-applied base (roles, boundary, state, budget), everything else through an approved pipeline |
 
 ## What carries over to FF, and what does not
 
