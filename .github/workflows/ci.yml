@@ -308,6 +308,9 @@ jobs:
       - name: actionlint
         if: ${{ !cancelled() }}
         run: bash scripts/checks/workflows.sh
+      - name: Exit codes are read before bash -e stops
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/exit-codes.sh
       - name: No secrets in the new commits
         if: ${{ !cancelled() }}
         run: bash scripts/checks/secrets.sh
