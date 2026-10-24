@@ -58,8 +58,8 @@ deploy_ecs() {
   for svc in api worker; do
     td=$([ "$svc" = api ] && echo "$API_TD" || echo "$WORKER_TD")
     for _ in $(seq 1 90); do
-      read -r primary state < <(aws ecs describe-services --cluster "$NAME" --services "$svc" \
-        --query 'services[0].deployments[?status==`PRIMARY`]|[0].[taskDefinition,rolloutState]' --output text)
+      read -r primary state <<<"$(aws ecs describe-services --cluster "$NAME" --services "$svc" \
+        --query 'services[0].deployments[?status==`PRIMARY`]|[0].[taskDefinition,rolloutState]' --output text)"
       if [ "$primary" != "$td" ]; then
         echo "::error::ECS $svc rolled back to ${primary##*/}: be $V's tasks did not become healthy (circuit breaker)."
         exit 1
@@ -129,7 +129,7 @@ EOF
     --query Command.CommandId --output text)
   echo "be $V: sent to $instance (command $cmd)"
   aws ssm wait command-executed --command-id "$cmd" --instance-id "$instance" || true
-  read -r status < <(aws ssm get-command-invocation --command-id "$cmd" --instance-id "$instance" --query Status --output text)
+  status=$(aws ssm get-command-invocation --command-id "$cmd" --instance-id "$instance" --query Status --output text)
   out=$(aws ssm get-command-invocation --command-id "$cmd" --instance-id "$instance" --query '[StandardOutputContent,StandardErrorContent]' --output text)
   echo "$out" | tail -5
   [ "$status" = Success ] || { echo "::error::be $V on EC2: $status"; exit 1; }
