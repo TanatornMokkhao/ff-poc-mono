@@ -1,4 +1,4 @@
 # What staging runs: one version of this whole repo (be and fe from the same commit).
 # The Release workflow writes it for every rc; the Deploy workflow deploys it.
-version: 1.2.0-rc.1   # 841676c
-mobile: 1.2.0-rc.1   # reference only; the app ships through the stores
+version: 1.3.0-rc.1   # dbafee3
+mobile: 1.3.0-rc.1   # reference only; the app ships through the stores
