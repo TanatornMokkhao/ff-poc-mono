@@ -287,6 +287,19 @@ data "aws_iam_policy_document" "terraform" {
     actions   = ["secretsmanager:*"]
     resources = ["arn:aws:secretsmanager:${var.region}:${local.account}:secret:rds!db-*"]
   }
+  # An encrypted RDS instance with an RDS-managed password needs the caller to use the default keys
+  # (aws/rds, aws/secretsmanager) through those services; without it CreateDBInstance fails with
+  # KMSKeyNotAccessibleFault. Only through RDS and Secrets Manager, never directly.
+  statement {
+    sid       = "DefaultKeysThroughRdsAndSecrets"
+    actions   = ["kms:DescribeKey", "kms:CreateGrant", "kms:GenerateDataKey", "kms:Decrypt"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["rds.${var.region}.amazonaws.com", "secretsmanager.${var.region}.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_role" "terraform" {
