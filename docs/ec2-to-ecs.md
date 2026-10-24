@@ -167,6 +167,7 @@ Record each result here with its date, the run or pull request, and what it mean
 | 2026-10-24 | 3 | Approving #33's run before bootstrap was applied failed the same way: merging bootstrap code changes nothing in AWS until a person applies it | Order on FF: base change applied, then the pipeline run approved |
 | 2026-10-24 | 3 | With every target unhealthy the ALB still forwards and answers 502, not 503 | A 502 at the ALB during a cutover can mean "nothing listening", not "load balancer broken" |
 | 2026-10-24 | 3 | The first split plan replaced the `ecs` target group and both task definitions: `depends_on = [module.current]` deferred every data source to apply time. Without it: 0 destroyed | In the real move, never make the ECS stack depend on the existing stack; read it with data sources at plan time |
+| 2026-10-24 | 4b | First deploy through both targets (run 40096969014): the migration ran as a one-off ECS task, the EC2 box took the release through SSM and its target group turned healthy. Then the deploy failed on ECS: `aws ecs wait services-stable` returned while the rollout was still `IN_PROGRESS` (the old task drains for the target group's 30 s), and the script read that as a rollback. ECS finished on its own two minutes later | "Stable" is not "done". A deploy pipeline watches `rolloutState` until `COMPLETED`, and tells a rollback (old definition primary again) apart from a rollout still running |
 
 ## What carries over to FF, and what does not
 

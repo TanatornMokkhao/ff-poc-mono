@@ -46,24 +46,32 @@ migrate_on_ecs() {
   fi
 }
 
-# Rolls both services to the new definitions and waits until ECS calls them stable. The circuit
-# breaker rolls a service back by itself when new tasks fail to start; that shows here as the old
-# definition still primary, and fails the deploy.
+# Rolls both services to the new definitions and waits for each rollout to end. "Stable" comes
+# before the rollout ends (the old task still drains), so this watches rolloutState itself:
+# COMPLETED with the new definition primary passes; FAILED, or the old definition back as primary
+# (the circuit breaker's rollback), fails the deploy. At most 15 minutes per service.
 deploy_ecs() {
   local svc td primary state
   aws ecs update-service --cluster "$NAME" --service api --task-definition "$API_TD" --query service.serviceName --output text >/dev/null
   aws ecs update-service --cluster "$NAME" --service worker --task-definition "$WORKER_TD" --query service.serviceName --output text >/dev/null
   echo "be $V: ECS services updating"
-  aws ecs wait services-stable --cluster "$NAME" --services api worker
   for svc in api worker; do
     td=$([ "$svc" = api ] && echo "$API_TD" || echo "$WORKER_TD")
-    read -r primary state < <(aws ecs describe-services --cluster "$NAME" --services "$svc" \
-      --query 'services[0].deployments[?status==`PRIMARY`]|[0].[taskDefinition,rolloutState]' --output text)
-    if [ "$primary" != "$td" ] || [ "$state" != COMPLETED ]; then
-      echo "::error::ECS $svc did not take be $V (primary ${primary##*/}, $state); the circuit breaker kept the old one."
-      exit 1
-    fi
-    echo "Check: ECS $svc runs ${td##*/}"
+    for _ in $(seq 1 90); do
+      read -r primary state < <(aws ecs describe-services --cluster "$NAME" --services "$svc" \
+        --query 'services[0].deployments[?status==`PRIMARY`]|[0].[taskDefinition,rolloutState]' --output text)
+      if [ "$primary" != "$td" ]; then
+        echo "::error::ECS $svc rolled back to ${primary##*/}: be $V's tasks did not become healthy (circuit breaker)."
+        exit 1
+      fi
+      case "$state" in
+        COMPLETED) echo "Check: ECS $svc runs ${td##*/}"; continue 2 ;;
+        FAILED) echo "::error::ECS $svc rollout of ${td##*/} failed."; exit 1 ;;
+      esac
+      sleep 10
+    done
+    echo "::error::ECS $svc rollout of ${td##*/} did not end within 15 minutes ($state)."
+    exit 1
   done
   target_group_healthy "$NAME-ecs"
 }
