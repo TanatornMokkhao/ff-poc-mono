@@ -1,6 +1,0 @@
-# Where staging's be runs (scripts/deploy.sh). ECS only: the EC2-to-ECS rehearsal
-# (docs/ec2-to-ecs.md) ran both behind one load balancer, then retired the EC2 box. Delete this file
-# when the rehearsal is turned off, or the next staging deploy fails to find the services.
-targets: ecs
-name: ff-poc-mono-staging
-url: http://ff-poc-mono-staging-977976063.ap-southeast-1.elb.amazonaws.com
