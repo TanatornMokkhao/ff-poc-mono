@@ -13,6 +13,7 @@ module "current" {
   boundary_arn        = data.aws_iam_policy.boundary.arn
   ecr_repository_arn  = aws_ecr_repository.be.arn
   runtime_policy_json = data.aws_iam_policy_document.runtime["staging"].json
+  ec2_enabled         = var.ec2_enabled
 }
 
 module "ecs" {
@@ -60,12 +61,15 @@ data "aws_iam_policy_document" "deploy_sim" {
       module.ecs[0].exec_role_arn,
     ]
   }
-  statement {
-    actions = ["ssm:SendCommand"]
-    resources = [
-      "arn:aws:ec2:${var.region}:${local.account}:instance/${module.current[0].instance_id}",
-      "arn:aws:ssm:${var.region}::document/AWS-RunShellScript",
-    ]
+  dynamic "statement" {
+    for_each = var.ec2_enabled ? [module.current[0].instance_id] : []
+    content {
+      actions = ["ssm:SendCommand"]
+      resources = [
+        "arn:aws:ec2:${var.region}:${local.account}:instance/${statement.value}",
+        "arn:aws:ssm:${var.region}::document/AWS-RunShellScript",
+      ]
+    }
   }
   statement {
     actions   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]

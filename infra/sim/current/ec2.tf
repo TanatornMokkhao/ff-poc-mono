@@ -48,27 +48,31 @@ data "aws_iam_policy_document" "ec2" {
 }
 
 resource "aws_iam_role" "ec2" {
+  count                = var.ec2_enabled ? 1 : 0
   name                 = "${var.name}-ec2"
   assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
   permissions_boundary = var.boundary_arn
 }
 
 resource "aws_iam_role_policy" "ec2" {
-  role   = aws_iam_role.ec2.id
+  count  = var.ec2_enabled ? 1 : 0
+  role   = aws_iam_role.ec2[0].id
   policy = data.aws_iam_policy_document.ec2.json
 }
 
 resource "aws_iam_instance_profile" "ec2" {
-  name = "${var.name}-ec2"
-  role = aws_iam_role.ec2.name
+  count = var.ec2_enabled ? 1 : 0
+  name  = "${var.name}-ec2"
+  role  = aws_iam_role.ec2[0].name
 }
 
 resource "aws_instance" "be" {
+  count                       = var.ec2_enabled ? 1 : 0
   ami                         = data.aws_ami.al2023.id
   instance_type               = "t3a.micro"
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.app.id]
-  iam_instance_profile        = aws_iam_instance_profile.ec2.name
+  iam_instance_profile        = aws_iam_instance_profile.ec2[0].name
   associate_public_ip_address = true
   user_data                   = <<-EOF
     #!/bin/bash
@@ -88,4 +92,26 @@ resource "aws_instance" "be" {
   lifecycle {
     ignore_changes = [ami, user_data]
   }
+}
+
+# These became counted when the box got its off switch; the blocks keep the running box in place.
+moved {
+  from = aws_iam_role.ec2
+  to   = aws_iam_role.ec2[0]
+}
+moved {
+  from = aws_iam_role_policy.ec2
+  to   = aws_iam_role_policy.ec2[0]
+}
+moved {
+  from = aws_iam_instance_profile.ec2
+  to   = aws_iam_instance_profile.ec2[0]
+}
+moved {
+  from = aws_instance.be
+  to   = aws_instance.be[0]
+}
+moved {
+  from = aws_lb_target_group_attachment.ec2
+  to   = aws_lb_target_group_attachment.ec2[0]
 }

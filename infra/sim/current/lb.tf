@@ -38,7 +38,8 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_lb_target_group_attachment" "ec2" {
+  count            = var.ec2_enabled ? 1 : 0
   target_group_arn = aws_lb_target_group.ec2.arn
-  target_id        = aws_instance.be.id
+  target_id        = aws_instance.be[0].id
   port             = 3000
 }

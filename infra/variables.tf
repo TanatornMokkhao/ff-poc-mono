@@ -32,6 +32,11 @@ variable "ecs_weight" {
   default = 0
 }
 
+variable "ec2_enabled" {
+  type    = bool
+  default = true
+}
+
 variable "api_count" {
   type    = number
   default = 1
