@@ -29,6 +29,8 @@ variable "repo_sub_prefix" {
 
 provider "aws" {
   region = var.region
+  # Applied from a laptop with admin keys: refuse any account but the POC's own.
+  allowed_account_ids = ["375355731232"]
 }
 
 data "aws_caller_identity" "me" {}
@@ -95,6 +97,50 @@ data "aws_iam_policy_document" "boundary" {
     sid       = "CdnRefresh"
     actions   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
     resources = ["arn:aws:cloudfront::${local.account}:distribution/*"]
+  }
+  # The EC2-to-ECS simulation (infra/sim): deploy to ECS and to the EC2 box, run the be on both.
+  statement {
+    sid = "DeployEcs"
+    actions = [
+      "ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition", "ecs:DescribeServices", "ecs:UpdateService",
+      "ecs:RunTask", "ecs:DescribeTasks", "ecs:ListTasks",
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "PassOwnRoles"
+    actions   = ["iam:PassRole"]
+    resources = [local.role_arn]
+  }
+  statement {
+    sid       = "DeployEc2"
+    actions   = ["ssm:SendCommand", "ssm:GetCommandInvocation", "ssm:ListCommandInvocations"]
+    resources = ["*"]
+  }
+  statement {
+    sid = "ManagedInstance"
+    actions = [
+      "ssm:UpdateInstanceInformation", "ssm:ListAssociations", "ssm:ListInstanceAssociations",
+      "ssm:DescribeAssociation", "ssm:GetDocument", "ssm:DescribeDocument",
+      "ssm:UpdateInstanceAssociationStatus", "ssm:UpdateAssociationStatus",
+      "ssmmessages:*", "ec2messages:*",
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:GetLogEvents", "logs:FilterLogEvents"]
+    resources = ["arn:aws:logs:${var.region}:${local.account}:log-group:/${local.prefix}-*"]
+  }
+  statement {
+    sid       = "DatabasePassword"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["arn:aws:secretsmanager:${var.region}:${local.account}:secret:rds!db-*"]
+  }
+  statement {
+    sid       = "ReadForDeploy"
+    actions   = ["ec2:DescribeInstances", "elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeTargetGroups"]
+    resources = ["*"]
   }
 }
 
@@ -200,6 +246,47 @@ data "aws_iam_policy_document" "terraform" {
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = ["${aws_s3_bucket.state.arn}/*"]
   }
+  # The EC2-to-ECS simulation (infra/sim). These services have few resource-level permissions, so
+  # they are granted account-wide; the account holds nothing but this POC.
+  statement {
+    sid = "Simulation"
+    actions = [
+      "ec2:*", "elasticloadbalancing:*", "ecs:*", "rds:*", "elasticache:*", "logs:*",
+    ]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "PassOwnRoles"
+    actions   = ["iam:PassRole"]
+    resources = [local.role_arn]
+  }
+  statement {
+    sid = "OwnInstanceProfiles"
+    actions = [
+      "iam:CreateInstanceProfile", "iam:DeleteInstanceProfile", "iam:AddRoleToInstanceProfile",
+      "iam:RemoveRoleFromInstanceProfile", "iam:TagInstanceProfile",
+    ]
+    resources = ["arn:aws:iam::${local.account}:instance-profile/${local.prefix}-*"]
+  }
+  statement {
+    sid       = "ServiceLinkedRoles"
+    actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:AWSServiceName"
+      values = [
+        "ecs.amazonaws.com", "elasticloadbalancing.amazonaws.com", "rds.amazonaws.com",
+        "elasticache.amazonaws.com",
+      ]
+    }
+  }
+  # RDS creates and deletes the master password secret on the caller's behalf.
+  statement {
+    sid       = "DatabasePasswordSecret"
+    actions   = ["secretsmanager:*"]
+    resources = ["arn:aws:secretsmanager:${var.region}:${local.account}:secret:rds!db-*"]
+  }
 }
 
 resource "aws_iam_role" "terraform" {
@@ -261,6 +348,15 @@ data "aws_iam_policy_document" "plan" {
     actions   = ["cloudfront:Get*", "cloudfront:List*"]
     resources = ["*"]
   }
+  statement {
+    sid = "ReadSimulation"
+    actions = [
+      "ec2:Describe*", "elasticloadbalancing:Describe*", "ecs:Describe*", "ecs:List*",
+      "rds:Describe*", "rds:ListTagsForResource", "elasticache:Describe*", "elasticache:ListTagsForResource",
+      "logs:Describe*", "logs:ListTagsLogGroup", "logs:ListTagsForResource", "secretsmanager:DescribeSecret",
+    ]
+    resources = ["*"]
+  }
   # Written out so that no later Allow can turn this role into a writer.
   statement {
     sid    = "NeverWrite"
@@ -271,7 +367,7 @@ data "aws_iam_policy_document" "plan" {
       "ecr:Put*", "ecr:Delete*", "ecr:BatchDelete*", "ecr:Create*", "ecr:Set*", "ecr:Tag*", "ecr:Untag*",
       "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:BatchGetImage",
       "ecr:GetDownloadUrlForLayer", "cloudfront:Create*", "cloudfront:Update*", "cloudfront:Delete*",
-      "cloudfront:Tag*", "cloudfront:Untag*", "ssm:*", "kms:*",
+      "cloudfront:Tag*", "cloudfront:Untag*", "ssm:*", "kms:*", "secretsmanager:GetSecretValue",
     ]
     resources = ["*"]
   }
@@ -315,6 +411,34 @@ resource "aws_s3_bucket_public_access_block" "state" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# Mail when the month's spend in this account passes 80% of the limit, or is forecast to pass it, so a
+# simulation left running is noticed within a day rather than on the bill.
+variable "budget_email" {
+  type = string
+}
+
+resource "aws_budgets_budget" "monthly" {
+  name         = "${local.prefix}-monthly"
+  budget_type  = "COST"
+  limit_amount = "50"
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.budget_email]
+  }
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.budget_email]
+  }
 }
 
 output "terraform_role_arn" {

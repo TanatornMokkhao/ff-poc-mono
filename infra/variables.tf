@@ -19,3 +19,25 @@ variable "stages" {
     prod    = "production"
   }
 }
+
+# The EC2-to-ECS simulation (sim/). Set in sim.auto.tfvars, so turning it on, moving traffic and
+# turning it off are each a one-line pull request with a plan to read.
+variable "staging_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "ecs_weight" {
+  type    = number
+  default = 0
+}
+
+variable "worker_count" {
+  type    = number
+  default = 0
+}
+
+variable "sim_image_tag" {
+  type    = string
+  default = "1.2.0-rc.1"
+}
