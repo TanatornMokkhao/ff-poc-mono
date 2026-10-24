@@ -77,8 +77,9 @@ jobs:
         id: plan
         run: |
           set -uo pipefail
-          terraform plan -input=false -no-color -lock=false -detailed-exitcode -out=tf.plan > plan.txt 2>&1
-          code=$?
+          # Exit code 2 means "changes"; the runner's bash -e would stop on it before code is read.
+          code=0
+          terraform plan -input=false -no-color -lock=false -detailed-exitcode -out=tf.plan > plan.txt 2>&1 || code=$?
           cat plan.txt
           case $code in
             0) echo "changes=false" >> "$GITHUB_OUTPUT" ;;

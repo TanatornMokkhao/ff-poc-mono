@@ -84,5 +84,15 @@ commit "app code and a test"
 PR_TITLE="fix: a is wrong" expect 0 fix-has-test.sh "a fix with a test passes"
 rm -rf "$R"
 
+# exit-codes.sh
+R=$(repo)
+printf 'jobs:\n  a:\n    steps:\n      - run: |\n          terraform plan -detailed-exitcode\n          code=$?\n' > "$R/.github/workflows/plan.yml"
+commit "status read on its own line"
+expect 1 exit-codes.sh "code=\$? on its own line fails"
+printf 'jobs:\n  a:\n    steps:\n      - run: |\n          code=0\n          terraform plan -detailed-exitcode || code=$?\n' > "$R/.github/workflows/plan.yml"
+commit "status read on the command line"
+expect 0 exit-codes.sh "cmd || code=\$? passes"
+rm -rf "$R"
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
