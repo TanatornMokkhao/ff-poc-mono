@@ -94,5 +94,16 @@ commit "status read on the command line"
 expect 0 exit-codes.sh "cmd || code=\$? passes"
 rm -rf "$R"
 
+# secrets.sh (the key is split so this file does not hold one)
+R=$(repo)
+mkdir -p "$R/apps/be"
+echo "aws_access_key_id = AKIA""Z7XK4P2MWQ5RJ3TB" > "$R/apps/be/.env.local"
+commit "an AWS key committed by mistake"
+expect 1 secrets.sh "an AWS access key in a new commit fails"
+rm "$R/apps/be/.env.local"
+commit "key removed"
+expect 0 secrets.sh "a commit that removes it passes"
+rm -rf "$R"
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
