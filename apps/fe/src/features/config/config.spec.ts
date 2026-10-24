@@ -25,7 +25,8 @@ describe('loadConfig', () => {
   });
 });
 
-test('isProd runs', () => {
-  isProd('prod');
-  isProd('staging');
+test('isProd is true only for prod', () => {
+  expect(isProd('prod')).toBe(true);
+  expect(isProd('staging')).toBe(false);
+  expect(isProd('')).toBe(false);
 });
