@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { loadConfig } from './config';
+import { isProd, loadConfig } from './config';
 
 const answer = (status: number, body?: unknown) =>
   (async () => new Response(body === undefined ? null : JSON.stringify(body), { status })) as unknown as typeof fetch;
@@ -23,4 +23,9 @@ describe('loadConfig', () => {
       expect((await loadConfig('/', f)).flags).toEqual({});
     }
   });
+});
+
+test('isProd runs', () => {
+  isProd('prod');
+  isProd('staging');
 });

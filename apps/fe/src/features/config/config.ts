@@ -30,3 +30,6 @@ export function useConfig() {
   const load = async () => { config.value = await loadConfig(import.meta.env.BASE_URL); };
   return { config, load };
 }
+
+// Production builds talk to the production API.
+export const isProd = (env: string): boolean => env === 'prod';
