@@ -32,6 +32,11 @@ variable "ecs_weight" {
   default = 0
 }
 
+variable "api_count" {
+  type    = number
+  default = 1
+}
+
 variable "worker_count" {
   type    = number
   default = 0
