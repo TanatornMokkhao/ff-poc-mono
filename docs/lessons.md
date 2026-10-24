@@ -36,6 +36,7 @@ can be switched on without fixing the whole repo first.
 
 | 2026-10-24 | fe tests were held to coverage only, so an fe test that checked nothing still passed | Mutation score of the fe lines a change adds (`src/**/*.ts`, `.vue`) must be at least 70%, the same gate as be | Tool on new code | `scripts/checks/mutation.sh fe`, `apps/fe/stryker.config.json` | An untested `isProd` added to `config.ts`: 0.00, fails; with its test: 100.00, passes |
 | 2026-10-24 | Nothing checked the packages an app ships against known advisories | `npm audit` on each app's dependencies (devDependencies left out) fails on high or critical | Tool on all of the app | `scripts/checks/audit.sh`, `be` and `fe` jobs | lodash 4.17.20 as a dependency: 1 high, fails; a critical minimist only in devDependencies: passes |
+| 2026-10-24 | An action's version tag can be moved to other code (tj-actions/changed-files, March 2025), and every job using the tag runs it with that job's credentials | Only GitHub's own actions, `aws-actions/*`, `hashicorp/*` and this account's workflows may run; the action that receives AWS credentials is pinned to a commit SHA; a pull request from a fork waits for approval every time | Repo setting, pinned SHA | Settings > Actions > General; `configure-aws-credentials@7474bc4…` in `deploy-stage.yml`, `release-run.yml`, `terraform.yml` | CI run 40087581145 on `main` passed every job under the new setting |
 
 ## Known weak spots (found by the gates, not fixed yet)
 
