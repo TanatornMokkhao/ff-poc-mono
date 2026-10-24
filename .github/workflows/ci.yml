@@ -296,6 +296,9 @@ jobs:
       - name: Release logic decides every known case right
         if: ${{ !cancelled() }}
         run: bash scripts/release-meta.test.sh
+      - name: ECS deploy tells a running rollout from a rollback
+        if: ${{ !cancelled() }}
+        run: bash scripts/deploy-targets.test.sh
       - name: Executable files keep their mode
         if: ${{ !cancelled() }}
         run: bash scripts/checks/executable-files.sh
